@@ -163,6 +163,57 @@ class PricesTest(unittest.TestCase):
         self.assertEqual(d, date(2026, 9, 3))
 
 
+class BuildPricesTest(unittest.TestCase):
+    def test_build_merges_sources(self):
+        import importlib.util
+        from unittest import mock
+
+        spec = importlib.util.spec_from_file_location("build_prices", ROOT / "scripts" / "build_prices.py")
+        bp = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(bp)
+
+        def fake_get(url, timeout=20):
+            if url == prices.TWSE_ALL_URL:
+                return [{"Code": "2330", "ClosingPrice": "1,005.00", "Date": "1151002"}]
+            if url == prices.TPEX_ALL_URL:
+                return [{"SecuritiesCompanyCode": "00679B", "Close": "28.10", "Date": "1151002"}]
+            raise OSError("offline")
+
+        def fake_month(sym, y, m):
+            return {date(y, m, 1): 150.0 + m}
+
+        quotes = prices.Quotes(prices={"TLT": 90.0, "TWD=X": 32.1})
+        with mock.patch.object(bp.px, "_get_json", fake_get), \
+             mock.patch.object(bp.px, "fetch_twse_month", fake_month), \
+             mock.patch.object(bp.px, "fetch_quotes", return_value=quotes):
+            data, errors = bp.build(date(2026, 10, 5))
+        self.assertEqual(data["date"], "2026-10-02")
+        self.assertEqual(data["twse"], {"2330": 1005.0})
+        self.assertEqual(data["tpex"], {"00679B": 28.1})
+        self.assertEqual(data["us"], {"TLT": 90.0})
+        self.assertEqual(data["usd_twd"], 32.1)
+        self.assertEqual(len(data["history"]["0050"]), bp.HISTORY_MONTHS)
+        self.assertEqual(data["history"]["0050"][0][0], "2026-07-01")
+        self.assertEqual(errors, [])
+        self.assertEqual(data["dates"], {"twse": "2026-10-02", "tpex": "2026-10-02"})
+
+        # 櫃買抓取失敗時沿用上次的資料，並保留它原本的日期
+        def tpex_down(url, timeout=20):
+            if url == prices.TPEX_ALL_URL:
+                raise prices.PriceError("IncompleteRead")
+            return fake_get(url, timeout)
+
+        previous = {"tpex": {"00679B": 27.9}, "dates": {"tpex": "2026-10-01"}}
+        with mock.patch.object(bp.px, "_get_json", tpex_down), \
+             mock.patch.object(bp.px, "fetch_twse_month", fake_month), \
+             mock.patch.object(bp.px, "fetch_quotes", return_value=quotes):
+            data, errors = bp.build(date(2026, 10, 5), previous)
+        self.assertEqual(data["tpex"], {"00679B": 27.9})
+        self.assertEqual(data["dates"], {"twse": "2026-10-02", "tpex": "2026-10-01"})
+        self.assertEqual(data["date"], "2026-10-02")
+        self.assertTrue(any("沿用" in e for e in errors))
+
+
 class CathayImportTest(unittest.TestCase):
     def test_parse_cp950_with_title_row(self):
         content = (

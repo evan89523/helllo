@@ -101,6 +101,8 @@
   // asOf: "YYYY-MM-DD"
   function evaluate(state, asOf) {
     const warnings = [];
+    // 手動設定的匯率優先，否則用每日價格檔附帶的匯率
+    const usdTwd = state.usd_twd || state.prices.USDTWD?.price || null;
     const priceOf = {};
     const positions = state.holdings.map((h) => {
       const p = state.prices[h.symbol];
@@ -110,11 +112,11 @@
         warnings.push(`${h.symbol} 沒有價格，暫以成本估值`);
         price = h.shares ? h.cost / h.shares : 0;
       } else if (h.market === "US") {
-        if (!state.usd_twd) {
+        if (!usdTwd) {
           warnings.push(`${h.symbol} 為美股但沒有 USD/TWD 匯率，暫以成本估值`);
           price = h.shares ? h.cost / h.shares : 0;
         } else {
-          price = p.price * state.usd_twd;
+          price = p.price * usdTwd;
         }
         stale = !!(p.date && p.date < asOf);
       } else {
@@ -416,6 +418,36 @@
     return { prices, date };
   }
 
+  // 從 prices.json（GitHub Actions 每日產生）取出需要的價格，依各持股的 market 選擇上市／上櫃／美股表
+  function quotesFromFeed(feed, state) {
+    const twse = feed.twse || {};
+    const tpex = feed.tpex || {};
+    const us = feed.us || {};
+    const pick = (symbol, market) => {
+      if (market === "TWSE") return twse[symbol];
+      if (market === "TPEX") return tpex[symbol];
+      if (market === "US") return us[symbol];
+      return twse[symbol] ?? tpex[symbol];
+    };
+    const wanted = new Map();
+    for (const h of state.holdings) if (h.market !== "MANUAL") wanted.set(h.symbol, h.market);
+    for (const l of state.loans) for (const r of [...l.collateral, ...l.purchases]) if (!wanted.has(r.symbol)) wanted.set(r.symbol, "AUTO");
+    if (!wanted.has(state.strategy.benchmark)) wanted.set(state.strategy.benchmark, "AUTO");
+    const dates = feed.dates || {};
+    const dateOf = (src) => dates[src] || feed.date || null;
+    const hits = {};
+    const missing = [];
+    for (const [symbol, market] of wanted) {
+      let src;
+      if (market === "TWSE" || market === "TPEX" || market === "US") src = market.toLowerCase();
+      else src = twse[symbol] !== undefined ? "twse" : "tpex";
+      const v = num(pick(symbol, market), NaN);
+      if (v > 0) hits[symbol] = { price: v, date: dateOf(src) };
+      else missing.push(symbol);
+    }
+    return { hits, missing, date: feed.date || null, usdTwd: num(feed.usd_twd, NaN) > 0 ? num(feed.usd_twd) : null, usdDate: dateOf("us") };
+  }
+
   function snapshot(s, verdict) {
     return {
       date: s.asOf,
@@ -442,6 +474,7 @@
     fundingSplits,
     parseMarketTable,
     parseRocDate,
+    quotesFromFeed,
     snapshot,
     daysBetween,
   };

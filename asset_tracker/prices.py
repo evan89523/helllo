@@ -5,8 +5,11 @@
 
 from __future__ import annotations
 
+import gzip
+import http.client
 import json
 import re
+import time
 import urllib.request
 from dataclasses import dataclass, field
 from datetime import date
@@ -23,10 +26,23 @@ class PriceError(RuntimeError):
     pass
 
 
-def _get_json(url: str, timeout: float = 20):
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode("utf-8-sig"))
+def _get_json(url: str, timeout: float = 20, attempts: int = 3):
+    """下載 JSON；要求 gzip 壓縮以縮小傳輸量（櫃買全市場表未壓縮約 4–5 MB），失敗時重試。"""
+    headers = {"User-Agent": USER_AGENT, "Accept": "application/json", "Accept-Encoding": "gzip"}
+    last: Exception | None = None
+    for i in range(attempts):
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                body = resp.read()
+                if resp.headers.get("Content-Encoding", "").lower() == "gzip":
+                    body = gzip.decompress(body)
+            return json.loads(body.decode("utf-8-sig"))
+        except (OSError, http.client.HTTPException, ValueError) as e:
+            last = e
+            if i + 1 < attempts:
+                time.sleep(2 ** (i + 1))
+    raise PriceError(f"{url}: {last}") from last
 
 
 def parse_number(value) -> float | None:
