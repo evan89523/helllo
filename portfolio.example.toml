@@ -1,0 +1,111 @@
+# 複製成 portfolio.toml 後填入你自己的資料（portfolio.toml 已在 .gitignore，不會被提交）
+# 以下數字都是範例。
+
+[settings]
+db_path = "data/tracker.db"
+report_dir = "reports"
+# 從國泰匯入的庫存檔（由 import-cathay 產生），可省略
+# holdings_files = ["holdings_cathay.toml"]
+# 持有美股 ETF（如 TLT）時，可固定匯率；不填則自動抓 Yahoo USD/TWD
+# usd_twd = 32.0
+# 交割戶現金
+cash = 200000
+
+[strategy]
+target_equity_leverage = 1.3   # 股票等效槓桿目標
+max_equity_leverage = 1.6      # 超過就建議減碼
+maintenance_call = 1.30        # 追繳線（依你和券商的契約，常見 130%）
+maintenance_warn = 1.66        # 警戒線，低於就建議避險
+maintenance_safe = 2.00        # 安全線，加碼借款不會讓維持率低於此值
+bond_ratio_min = 0.15          # 債券 ETF 佔總資產下限
+bond_ratio_max = 0.40
+max_single_position = 0.40     # 單一股票曝險佔淨值上限
+benchmark = "0050"             # 判斷大盤趨勢用的標的
+trend_ma_days = 60             # 均線天數
+
+# ---------- 正股 ----------
+# category: stock（正股）| trust（持股信託）| bond_etf（債券 ETF）
+# market: AUTO（自動找上市/上櫃，預設）| TWSE | TPEX | US | MANUAL（手動填 price）
+# cost: 總成本（含手續費），台幣
+# dividends: 累積已領股利（會算進損益）
+
+[[holdings]]
+symbol = "2330"
+name = "台積電"
+category = "stock"
+shares = 3000
+cost = 2400000
+
+[[holdings]]
+symbol = "0050"
+name = "元大台灣50"
+category = "stock"
+shares = 10000
+cost = 1500000
+dividends = 30000
+
+# 槓桿型 ETF 用 exposure 表示倍數，等效槓桿會依此計算
+# [[holdings]]
+# symbol = "00631L"
+# category = "stock"
+# shares = 5000
+# cost = 1000000
+# exposure = 2.0
+
+# ---------- 持股信託 ----------
+# cost = 自己提撥的金額；company_match = 公司獎勵金（不算成本，會算進報酬）
+[[holdings]]
+symbol = "2882"
+name = "國泰金（持股信託）"
+category = "trust"
+shares = 8000
+cost = 360000
+company_match = 120000
+
+# ---------- 美債 ETF ----------
+[[holdings]]
+symbol = "00679B"
+name = "元大美債20年"
+category = "bond_etf"
+shares = 20000
+cost = 600000
+dividends = 15000
+
+# 美國掛牌的美債 ETF：成本請填台幣，價格會用匯率換算
+# [[holdings]]
+# symbol = "TLT"
+# category = "bond_etf"
+# market = "US"
+# shares = 100
+# cost = 290000
+
+# ---------- 質押借款（不限用途借貸） ----------
+[[loans]]
+id = "pledge-1"
+name = "國泰不限用途借貸"
+principal = 1000000
+annual_rate = 0.025
+start_date = "2026-03-02"
+interest_paid = 8000      # 已繳利息（未繳的部分會計入負債）
+realized_pnl = 0          # 用這筆借款買賣已實現的損益
+
+# 擔保品：質押了哪些股票、幾股（維持率 = 擔保品市值 / 借款本金）
+[[loans.collateral]]
+symbol = "2330"
+shares = 2000
+
+# 用這筆借款買了什麼（用來計算「質押損益」）；這些股票也要列在上面的 holdings
+[[loans.purchases]]
+symbol = "0050"
+shares = 5000
+cost = 800000
+dividends = 15000
+
+[[loans.purchases]]
+symbol = "00679B"
+shares = 7000
+cost = 210000
+
+# 臨時手動價格（優先於自動抓取），例如興櫃或抓不到的標的
+# [prices]
+# "1234" = 56.7

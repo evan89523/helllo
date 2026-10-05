@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>我的錢與借來的錢</title>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
+  --grid: #e1e0d9; --ring: rgba(11,11,11,0.10);
+  --own: #2a78d6; --own-dark: #1c5cab; --borrowed: #eb6834; --borrowed-ink: #b9441a;
+  --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b;
+  --pos: #006300; --neg: #d03b3b;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --ring: rgba(255,255,255,0.10);
+    --own: #3987e5; --own-dark: #184f95; --borrowed: #d95926; --borrowed-ink: #f08a5d;
+    --pos: #0ca30c; --neg: #e66767;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface: #1a1a19; --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
+  --grid: #2c2c2a; --ring: rgba(255,255,255,0.10);
+  --own: #3987e5; --own-dark: #184f95; --borrowed: #d95926; --borrowed-ink: #f08a5d;
+  --pos: #0ca30c; --neg: #e66767;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--ink);
+  font: 15px/1.55 system-ui, -apple-system, "Segoe UI", "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif; }
+main { max-width: 1040px; margin: 0 auto; padding: 24px 16px 48px; }
+header { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 8px; }
+h1 { font-size: 22px; margin: 0; }
+h2 { font-size: 17px; margin: 32px 0 12px; }
+h3 { font-size: 16px; margin: 0; }
+.muted { color: var(--muted); }
+.card { background: var(--surface); border: 1px solid var(--ring); border-radius: 12px; padding: 20px; }
+.hero { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 16px; }
+.hero .card { padding: 16px 20px; }
+.hero .k { color: var(--ink-2); font-size: 14px; display: flex; align-items: center; gap: 8px; }
+.hero .v { font-size: 30px; font-weight: 650; margin-top: 4px; }
+.hero .s { color: var(--muted); font-size: 13px; }
+.sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; flex: none; }
+.sw.own { background: var(--own); }
+.sw.borrowed { background: var(--borrowed); }
+.sw.pledged { background: var(--own); background-image: repeating-linear-gradient(45deg, transparent 0 3px, var(--own-dark) 3px 5px); }
+.bar { display: flex; gap: 2px; height: 44px; margin-top: 16px; }
+.bar.small { height: 18px; margin-top: 6px; }
+.seg { min-width: 2px; position: relative; display: flex; align-items: center; padding: 0 10px;
+  color: #fff; font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; cursor: default; outline: none; }
+.seg:first-child { border-radius: 4px 0 0 4px; }
+.seg:last-child { border-radius: 0 4px 4px 0; }
+.seg:only-child { border-radius: 4px; }
+.seg.own { background: var(--own); }
+.seg.pledged { background-image: repeating-linear-gradient(45deg, transparent 0 4px, var(--own-dark) 4px 7px); }
+.seg.borrowed { background: var(--borrowed); }
+.seg:hover, .seg:focus-visible { filter: brightness(1.12); }
+.legend { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 12px; color: var(--ink-2); font-size: 13px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.equation { margin-top: 10px; color: var(--ink-2); font-size: 14px; }
+.row { padding: 10px 0; border-top: 1px solid var(--grid); }
+.row:first-of-type { border-top: 0; }
+.row-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+.row-name { font-weight: 600; }
+.row-sub { color: var(--muted); font-size: 12px; }
+.row-val { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tag { font-size: 12px; border-radius: 999px; padding: 1px 8px; margin-left: 6px; border: 1px solid; }
+.tag-borrowed { color: var(--borrowed-ink); border-color: var(--borrowed); }
+.tag-own { color: var(--ink-2); border-color: var(--grid); }
+.loans { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+.loan-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 14px 0 0; font-size: 14px; }
+dt { color: var(--ink-2); }
+dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.borrowed-ink { color: var(--borrowed-ink); font-weight: 650; }
+.pos { color: var(--pos); font-weight: 600; }
+.neg { color: var(--neg); font-weight: 600; }
+.status { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600;
+  padding: 2px 10px 2px 4px; border-radius: 999px; border: 1px solid var(--ring); color: var(--ink); }
+.status .ico { width: 18px; height: 18px; border-radius: 50%; display: inline-grid; place-items: center;
+  color: #fff; font-size: 11px; }
+.st-good .ico { background: var(--good); }
+.st-warning .ico { background: var(--warning); color: #0b0b0b; }
+.st-serious .ico { background: var(--serious); color: #0b0b0b; }
+.st-critical .ico { background: var(--critical); }
+.st-none .ico { background: var(--muted); }
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.stats .card { padding: 14px 16px; }
+.stats .k { color: var(--ink-2); font-size: 13px; }
+.stats .v { font-size: 20px; font-weight: 650; }
+.stats .s { color: var(--muted); font-size: 12px; }
+ul.advice { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+ul.advice li { display: flex; gap: 12px; align-items: flex-start; }
+ul.advice p { margin: 2px 0 0; color: var(--ink-2); font-size: 14px; }
+.adv { flex: none; font-size: 12px; font-weight: 700; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--grid); }
+.adv-緊急 { border-color: var(--critical); color: var(--neg); }
+.adv-避險, .adv-減碼 { border-color: var(--serious); }
+.adv-加碼 { border-color: var(--good); color: var(--pos); }
+details { margin-top: 12px; }
+summary { cursor: pointer; color: var(--ink-2); }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 8px; }
+th, td { padding: 6px 8px; border-bottom: 1px solid var(--grid); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+th:first-child, td:first-child, th:nth-child(2), td:nth-child(2) { text-align: left; }
+th { color: var(--ink-2); font-weight: 600; }
+.tip { position: fixed; pointer-events: none; background: var(--surface); color: var(--ink);
+  border: 1px solid var(--ring); box-shadow: 0 4px 16px rgba(0,0,0,.15); border-radius: 8px;
+  padding: 6px 10px; font-size: 13px; max-width: 280px; display: none; z-index: 10; }
+footer { margin-top: 32px; color: var(--muted); font-size: 12px; }
+@media (max-width: 720px) {
+  .hero, .stats { grid-template-columns: 1fr 1fr; }
+  .hero .card:first-child { grid-column: 1 / -1; }
+  .hero .v { font-size: 24px; }
+}
+@media (forced-colors: active) {
+  .seg.borrowed { background-image: repeating-linear-gradient(135deg, transparent 0 4px, CanvasText 4px 6px); }
+}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <h1>我的錢與借來的錢</h1>
+  <span class="muted">2026-10-05　今日建議：<strong>避險</strong></span>
+</header>
+
+<section class="hero" aria-label="總覽">
+  <div class="card"><div class="k">總資產</div><div class="v">6,080,000</div>
+    <div class="s">市值＋現金</div></div>
+  <div class="card"><div class="k"><span class="sw own"></span>我的錢（淨值）</div><div class="v">5,073,137</div>
+    <div class="s">總資產扣掉所有借款</div></div>
+  <div class="card"><div class="k"><span class="sw borrowed"></span>借來的錢</div><div class="v borrowed-ink">1,006,863</div>
+    <div class="s">佔總資產 16.6%</div></div>
+</section>
+
+<section class="card" style="margin-top:12px" aria-label="總資產組成">
+  <h3>總資產裡，多少是我的、多少是借的</h3>
+  <div class="bar" role="img" aria-label="我的錢 5,073,137 元，借來的錢 1,006,863 元"><div class="seg own" style="flex-basis:83.4398%" tabindex="0" data-tip="我的錢（淨值）：5,073,137 元，佔總資產 83.4%"><span class="seg-label">我的錢 507.3 萬</span></div><div class="seg borrowed" style="flex-basis:16.5602%" tabindex="0" data-tip="借來的錢（借款本金＋未繳利息）：1,006,863 元，佔總資產 16.6%"><span class="seg-label">借來的 100.7 萬</span></div></div>
+  <div class="legend"><span><i class="sw own"></i>我的錢</span><span><i class="sw borrowed"></i>借來的錢</span></div>
+  <div class="equation">每 100 元資產中，83 元是你的，17 元是借來的。</div>
+</section>
+
+<section class="stats" style="margin-top:12px" aria-label="風險指標">
+  <div class="card"><div class="k">股票等效槓桿</div><div class="v">1.04x</div>
+    <div class="s">目標 1.30x・上限 1.60x</div></div>
+  <div class="card"><div class="k">最低維持率</div><div class="v">200%</div>
+    <div class="s">追繳線 130%</div></div>
+  <div class="card"><div class="k">質押損益（扣利息）</div>
+    <div class="v pos">+100,137</div>
+    <div class="s">借錢投資到目前賺／賠</div></div>
+  <div class="card"><div class="k">債券比重</div><div class="v">9.9%</div>
+    <div class="s">趨勢資料不足（1/60 天）</div></div>
+</section>
+
+<h2>每一筆資產是用誰的錢買的</h2>
+<section class="card" aria-label="各部位資金來源">
+  <div class="legend" style="margin-top:0">
+    <span><i class="sw own"></i>自有資金買的</span>
+    <span><i class="sw pledged"></i>自有、但質押給券商（不能隨便賣）</span>
+    <span><i class="sw borrowed"></i>用借來的錢買的（現值）</span>
+  </div>
+  <div class="row"><div class="row-head"><div><div class="row-name">2330 台積電</div><div class="row-sub">正股</div></div><div class="row-val">3,000,000 <span class="tag tag-own">質押 67%</span></div></div><div class="bar small"><div class="seg own" style="flex-basis:33.3333%" tabindex="0" data-tip="2330 台積電｜自有資金買的（未質押）：1,000,000 元"></div><div class="seg own pledged" style="flex-basis:66.6667%" tabindex="0" data-tip="2330 台積電｜自有、但已質押給券商：2,000,000 元"></div></div></div><div class="row"><div class="row-head"><div><div class="row-name">0050 元大台灣50</div><div class="row-sub">正股</div></div><div class="row-val">1,800,000 <span class="tag tag-borrowed">借款 50%</span></div></div><div class="bar small"><div class="seg own" style="flex-basis:30.0000%" tabindex="0" data-tip="0050 元大台灣50｜自有資金買的（未質押）：900,000 元"></div><div class="seg borrowed" style="flex-basis:30.0000%" tabindex="0" data-tip="0050 元大台灣50｜用借來的錢買的（現值）：900,000 元"></div></div></div><div class="row"><div class="row-head"><div><div class="row-name">00679B 元大美債20年</div><div class="row-sub">美債 ETF</div></div><div class="row-val">600,000 <span class="tag tag-borrowed">借款 35%</span></div></div><div class="bar small"><div class="seg own" style="flex-basis:13.0000%" tabindex="0" data-tip="00679B 元大美債20年｜自有資金買的（未質押）：390,000 元"></div><div class="seg borrowed" style="flex-basis:7.0000%" tabindex="0" data-tip="00679B 元大美債20年｜用借來的錢買的（現值）：210,000 元"></div></div></div><div class="row"><div class="row-head"><div><div class="row-name">2882 國泰金（持股信託）</div><div class="row-sub">持股信託</div></div><div class="row-val">480,000 <span class="tag tag-own">全部自有</span></div></div><div class="bar small"><div class="seg own" style="flex-basis:16.0000%" tabindex="0" data-tip="2882 國泰金（持股信託）｜自有資金買的（未質押）：480,000 元"></div></div></div><div class="row"><div class="row-head"><div><div class="row-name">現金</div><div class="row-sub">交割戶</div></div><div class="row-val">200,000 <span class="tag tag-own">全部自有</span></div></div><div class="bar small"><div class="seg own" style="flex-basis:6.6667%" tabindex="0" data-tip="現金｜自有資金買的（未質押）：200,000 元"></div></div></div>
+  <details><summary>表格檢視</summary>
+    <div class="table-wrap"><table>
+      <thead><tr><th>標的</th><th>類別</th><th>自有未質押</th><th>自有質押中</th><th>借款買進</th><th>合計</th></tr></thead>
+      <tbody><tr><td>2330 台積電</td><td>正股</td><td>1,000,000</td><td>2,000,000</td><td>0</td><td>3,000,000</td></tr><tr><td>0050 元大台灣50</td><td>正股</td><td>900,000</td><td>0</td><td>900,000</td><td>1,800,000</td></tr><tr><td>00679B 元大美債20年</td><td>美債 ETF</td><td>390,000</td><td>0</td><td>210,000</td><td>600,000</td></tr><tr><td>2882 國泰金（持股信託）</td><td>持股信託</td><td>480,000</td><td>0</td><td>0</td><td>480,000</td></tr><tr><td>現金</td><td>交割戶</td><td>200,000</td><td>0</td><td>0</td><td>200,000</td></tr></tbody>
+    </table></div>
+  </details>
+</section>
+
+<h2>借款明細</h2>
+<section class="loans">
+<div class="card loan">
+  <div class="loan-head"><h3>國泰不限用途借貸</h3>
+    <span class="status st-good"><span class="ico">✓</span>200% 安全</span></div>
+  <dl>
+    <dt>借了</dt><dd class="borrowed-ink">1,000,000</dd>
+    <dt>年利率／已借天數</dt><dd>2.50%／217 天</dd>
+    <dt>累積利息</dt><dd>14,863</dd>
+    <dt>拿來買了</dt><dd>0050 5,000 股、00679B 7,000 股</dd>
+    <dt>質押的股票（擔保品）</dt><dd>2330 2,000 股，市值 2,000,000</dd>
+    <dt>擔保品再跌多少會被追繳</dt><dd>35.0%</dd>
+    <dt>質押損益（扣利息後）</dt><dd class="pos">+100,137</dd>
+  </dl>
+</div></section>
+
+<h2>建議</h2>
+<section class="card"><ul class="advice"><li><span class="adv adv-避險">避險</span><div><strong>債券 ETF 比重 9.9% 低於下限 15%</strong>（約 312,000 元）<p>可用現金或部分股票轉入美債 ETF 約 312,000 元。注意：股債並非永遠負相關（例如 2022 年同跌），且美債 ETF 有匯率風險。</p></div></li><li><span class="adv adv-分散">分散</span><div><strong>2330 曝險佔淨值 59%，超過單一上限 40%</strong>（約 970,745 元）<p>超出約 970,745 元。若同時是質押擔保品，下跌時損益與維持率會一起惡化。</p></div></li></ul></section>
+
+
+
+<footer>
+  「用借來的錢買的」是依 portfolio.toml 中 loans.purchases 登記的股數乘以現價；借款本金扣掉已登記買進成本後的餘額，視為還放在現金裡。
+  本頁由規則引擎依你設定的門檻自動產生，不是投資顧問意見；實際維持率與追繳金額以券商通知為準。
+</footer>
+</main>
+<div class="tip" id="tip" role="tooltip"></div>
+<script id="data" type="application/json">{"as_of": "2026-10-05", "gross_assets": 6080000.0, "liabilities": 1006863.0136986302, "net_equity": 5073136.98630137, "cash": 200000.0, "equity_exposure": 5280000.0, "asset_leverage": 1.198469510367528, "equity_leverage": 1.0407761537402218, "bond_ratio": 0.09868421052631579, "min_maintenance": 2.0, "pledge_pnl": 100136.98630136986, "by_category": {"stock": 4800000.0, "trust": 480000.0, "bond_etf": 600000.0}, "positions": [{"symbol": "2330", "category": "stock", "shares": 3000.0, "price": 1000.0, "market_value": 3000000.0, "unrealized": 600000.0, "stale": false}, {"symbol": "0050", "category": "stock", "shares": 10000.0, "price": 180.0, "market_value": 1800000.0, "unrealized": 330000.0, "stale": false}, {"symbol": "2882", "category": "trust", "shares": 8000.0, "price": 60.0, "market_value": 480000.0, "unrealized": 120000.0, "stale": false}, {"symbol": "00679B", "category": "bond_etf", "shares": 20000.0, "price": 30.0, "market_value": 600000.0, "unrealized": 15000.0, "stale": false}], "loans": [{"id": "pledge-1", "principal": 1000000.0, "collateral_value": 2000000.0, "maintenance": 2.0, "interest_accrued": 14863.013698630137, "pledge_pnl": 100136.98630136986}]}</script>
+<script>
+(() => {
+  const tip = document.getElementById("tip");
+  const fit = () => document.querySelectorAll(".seg-label").forEach(l => {
+    l.style.visibility = "";
+    if (l.offsetWidth > l.parentElement.clientWidth - 16) l.style.visibility = "hidden";
+  });
+  fit();
+  addEventListener("resize", fit);
+  const show = (el, x, y) => {
+    tip.textContent = el.dataset.tip;
+    tip.style.display = "block";
+    const w = tip.offsetWidth, h = tip.offsetHeight;
+    tip.style.left = Math.min(x + 12, innerWidth - w - 8) + "px";
+    tip.style.top = Math.max(8, y - h - 12) + "px";
+  };
+  document.querySelectorAll(".seg").forEach(el => {
+    el.addEventListener("mousemove", ev => show(el, ev.clientX, ev.clientY));
+    el.addEventListener("mouseleave", () => tip.style.display = "none");
+    el.addEventListener("focus", () => { const r = el.getBoundingClientRect(); show(el, r.left, r.top); });
+    el.addEventListener("blur", () => tip.style.display = "none");
+  });
+})();
+</script>
+</body>
+</html>
