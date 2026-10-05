@@ -1,10 +1,14 @@
-# 把 web/（手機 App，只有程式碼、不含任何個人資料）部署到 GitHub Pages
+# 部署手機 App（web/）到 GitHub Pages，並附上當天的收盤價 prices.json。
+# 只包含程式碼與公開行情，不含任何個人持股資料。
 name: Deploy phone app
 
 on:
   push:
-    branches: [master, main]
-    paths: ["web/**", ".github/workflows/pages.yml"]
+    paths: ["web/**", "scripts/**", "asset_tracker/prices.py", ".github/workflows/pages.yml"]
+  schedule:
+    # 平日台北時間 15:41、18:41（收盤資料更新後；GitHub 排程可能延遲數分鐘到數十分鐘）
+    - cron: "41 7 * * 1-5"
+    - cron: "41 10 * * 1-5"
   workflow_dispatch:
 
 permissions:
@@ -13,20 +17,38 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  group: pages-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Fetch closing prices
+        id: prices
+        continue-on-error: true
+        run: python scripts/build_prices.py web/prices.json
+      - name: Keep the last published prices if today's fetch failed
+        if: steps.prices.outcome != 'success' && github.ref_name == github.event.repository.default_branch
+        run: |
+          url="https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}/prices.json"
+          curl -fsSL "$url" -o web/prices.json && echo "::warning::今日股價抓取失敗，沿用上次發布的 prices.json" \
+            || echo "::warning::今日股價抓取失敗，且沒有舊的 prices.json，App 將改用手動輸入"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+
   deploy:
+    needs: build
+    if: github.ref_name == github.event.repository.default_branch
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: web
       - id: deployment
         uses: actions/deploy-pages@v4

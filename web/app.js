@@ -543,34 +543,61 @@
     const btn = $("#refresh");
     btn.disabled = true;
     btn.textContent = "更新中…";
-    const wanted = new Set([state.strategy.benchmark]);
-    for (const h of state.holdings) if (h.market !== "US" && h.market !== "MANUAL") wanted.add(h.symbol);
-    for (const l of state.loans) for (const r of [...l.collateral, ...l.purchases]) wanted.add(r.symbol);
-    let got = 0;
-    const errors = [];
-    const tables = [];
-    for (const [name, url] of [["證交所", TWSE_URL], ["櫃買中心", TPEX_URL]]) {
+    try {
+      const msg = (await refreshFromFeed()) || (await refreshDirect());
+      save();
+      toast(msg);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "更新股價";
+      render();
+    }
+  }
+
+  // 1. 先讀同一個網站上的 prices.json（GitHub Actions 每個交易日自動更新）
+  async function refreshFromFeed() {
+    let feed;
+    try {
+      feed = await fetchJson(`prices.json?t=${Date.now()}`);
+    } catch (e) {
+      return null;
+    }
+    const { hits, missing, date, usdTwd } = C.quotesFromFeed(feed, state);
+    const d = date || today();
+    for (const [s, p] of Object.entries(hits)) setPrice(s, p, d, "feed");
+    if (usdTwd) state.prices.USDTWD = { price: usdTwd, date: d, source: "feed" };
+    // 預先抓好的大盤歷史價格：補進手機上的價格歷史，讓均線判斷馬上可用
+    for (const [s, rows] of Object.entries(feed.history || {})) for (const [hd, hp] of rows) if (hp > 0) mergeHistory(s, hd, hp);
+    const n = Object.keys(hits).length;
+    const when = d === today() ? "今日" : `${d} `;
+    if (!n) return `價格檔（${d}）裡找不到你的持股代號，請到「持股」手動輸入`;
+    return missing.length ? `已更新 ${when}收盤價 ${n} 檔；找不到：${missing.join("、")}，請手動輸入` : `已更新 ${when}收盤價 ${n} 檔`;
+  }
+
+  function mergeHistory(symbol, date, price) {
+    const hist = (state.price_history[symbol] = state.price_history[symbol] || []);
+    if (hist.some((r) => r[0] === date)) return;
+    hist.push([date, price]);
+    hist.sort((a, b) => (a[0] < b[0] ? -1 : 1));
+    if (hist.length > HISTORY_KEEP) hist.splice(0, hist.length - HISTORY_KEEP);
+  }
+
+  // 2. 沒有價格檔時（例如在電腦本機測試），才直接連證交所／櫃買中心（可能被瀏覽器跨網域限制擋下）
+  async function refreshDirect() {
+    const tables = {};
+    for (const [key, url] of [["twse", TWSE_URL], ["tpex", TPEX_URL]]) {
       try {
-        tables.push(C.parseMarketTable(await fetchJson(url)));
+        tables[key] = C.parseMarketTable(await fetchJson(url));
       } catch (e) {
-        errors.push(name);
+        /* 被擋或連不上 */
       }
     }
-    for (const s of wanted) {
-      const hit = tables.find((t) => t.prices[s] !== undefined);
-      if (hit) {
-        setPrice(s, hit.prices[s], hit.date || today(), "auto");
-        got++;
-      }
-    }
-    save();
-    btn.disabled = false;
-    btn.textContent = "更新股價";
-    const missing = [...wanted].filter((s) => !tables.some((t) => t.prices[s] !== undefined));
-    if (errors.length === 2) toast("連不上證交所與櫃買中心（可能被瀏覽器阻擋），請到「持股」手動輸入價格");
-    else if (missing.length) toast(`更新 ${got} 檔；找不到：${missing.join("、")}，請手動輸入`);
-    else toast(`已更新 ${got} 檔收盤價`);
-    render();
+    if (!tables.twse && !tables.tpex) return "連不上價格來源，請到「持股」手動輸入價格";
+    const feed = { twse: tables.twse?.prices, tpex: tables.tpex?.prices, date: tables.twse?.date || tables.tpex?.date };
+    const { hits, missing, date } = C.quotesFromFeed(feed, state);
+    for (const [s, p] of Object.entries(hits)) setPrice(s, p, date || today(), "auto");
+    const n = Object.keys(hits).length;
+    return missing.length ? `更新 ${n} 檔；找不到：${missing.join("、")}，請手動輸入` : `已更新 ${n} 檔收盤價`;
   }
 
   // ---------- 匯入匯出 ----------

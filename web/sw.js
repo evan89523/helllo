@@ -1,5 +1,5 @@
 // 離線快取：App 本身的檔案先用快取顯示，背景再更新；股價 API（跨網域）不經過快取。
-const CACHE = "asset-tracker-v1";
+const CACHE = "asset-tracker-v2";
 const SHELL = ["./", "index.html", "core.js", "app.js", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png"];
 
 self.addEventListener("install", (e) => {
@@ -15,6 +15,7 @@ self.addEventListener("activate", (e) => {
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== "GET" || url.origin !== self.location.origin) return;
+  if (url.pathname.endsWith("/prices.json")) return; // 股價每天都會變，一律走網路
   e.respondWith(
     caches.open(CACHE).then(async (cache) => {
       const cached = await cache.match(e.request, { ignoreSearch: true });

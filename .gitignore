@@ -7,3 +7,4 @@ __pycache__/
 *.pyc
 portfolio-export.json
 asset-tracker-*.json
+web/prices.json
