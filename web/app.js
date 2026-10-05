@@ -251,7 +251,7 @@
         const coll = l.collateral.map((c) => `${c.symbol} ${fmt(c.shares)} 股`).join("、") || "未登記";
         const buy = l.purchases.map((p) => `${p.symbol} ${fmt(p.shares)} 股`).join("、") || "未登記";
         return `<div class="list-item" data-act="edit-loan" data-i="${i}"><div><div class="row-name">${esc(l.name || l.id)}</div>
-          <div class="s">本金 ${fmt(l.principal)}・年利率 ${pct(l.annual_rate, 2)}・${esc(l.start_date)} 起</div>
+          <div class="s">本金 ${fmt(l.principal)}・年利率 ${pct(l.annual_rate, 2)}・${l.draws.length > 1 ? `${l.draws.length} 次撥款，` : ""}${esc(l.start_date)} 起</div>
           <div class="s">質押：${esc(coll)}</div><div class="s">買了：${esc(buy)}</div></div><span class="chev">›</span></div>`;
       })
       .join("");
@@ -338,7 +338,7 @@
         if (sub.dataset.sub === "add") {
           const kind = sub.dataset.kind;
           const wrap = document.createElement("div");
-          wrap.innerHTML = subRowsHtml(kind, [{ symbol: "", shares: "", cost: "" }]);
+          wrap.innerHTML = subRowsHtml(kind, [kind === "draws" ? { date: today(), amount: "" } : { symbol: "", shares: "", cost: "" }]);
           $(`#rows-${kind}`).appendChild(wrap.querySelector(".sub-row"));
         }
         return;
@@ -451,6 +451,17 @@
   }
 
   function subRowsHtml(kind, rows) {
+    if (kind === "draws") {
+      const inner = rows
+        .map(
+          (r) => `<div class="sub-row two" data-kind="draws">
+          <input type="date" value="${esc(r.date)}" data-k="date" aria-label="撥款日">
+          <input placeholder="金額" inputmode="decimal" value="${esc(r.amount || "")}" data-k="amount" aria-label="金額">
+          <button type="button" class="x" data-sub="remove" aria-label="移除">×</button></div>`
+        )
+        .join("");
+      return `<div class="sub-rows" id="rows-draws">${inner}</div><button type="button" class="btn" data-sub="add" data-kind="draws">＋ 新增一次撥款</button>`;
+    }
     const two = kind === "collateral";
     const inner = rows
       .map(
@@ -467,26 +478,30 @@
   function editLoan(i) {
     const isNew = i === undefined;
     const l = isNew
-      ? { id: `loan-${Date.now().toString(36)}`, name: "", principal: 0, annual_rate: 0.025, start_date: today(), interest_paid: 0, realized_pnl: 0, collateral: [{ symbol: "", shares: 0 }], purchases: [] }
+      ? { id: `loan-${Date.now().toString(36)}`, name: "", principal: 0, annual_rate: 0.025, start_date: today(), interest_paid: 0, realized_pnl: 0, draws: [{ date: today(), amount: "" }], collateral: [{ symbol: "", shares: 0 }], purchases: [] }
       : state.loans[i];
     openSheet(
       isNew ? "新增質押借款" : l.name || l.id,
       field("name", "名稱", l.name, { mode: "text", hint: "例如：國泰不限用途借貸" }) +
-        field("principal", "借款本金", l.principal || "") +
-        field("annual_rate", "年利率（%）", l.annual_rate ? +(l.annual_rate * 100).toFixed(4) : "", { hint: "例如 2.5" }) +
-        field("start_date", "起借日", l.start_date, { type: "date" }) +
+        field("annual_rate", "年利率（%）", l.annual_rate ? +(l.annual_rate * 100).toFixed(4) : "", { hint: "例如 3.92" }) +
+        `<fieldset><legend>撥款紀錄（日期、金額）</legend>${subRowsHtml("draws", l.draws)}
+          <p class="s">分好幾次借的，每次撥款各記一列；利息從各自的撥款日起算，本金＝合計。</p></fieldset>` +
         field("interest_paid", "已繳利息", l.interest_paid || "", { hint: "未繳的利息會計入負債" }) +
         field("realized_pnl", "已實現損益", l.realized_pnl || "", { hint: "用這筆借款買賣已經實現的賺賠" }) +
         `<fieldset><legend>質押了哪些股票（擔保品）</legend>${subRowsHtml("collateral", l.collateral)}</fieldset>` +
         `<fieldset><legend>用這筆錢買了什麼</legend>${subRowsHtml("purchases", l.purchases)}
           <p class="s">買進的股票也要另外在「持股」中登記。</p></fieldset>`,
       (form) => {
-        const principal = numOf(form, "principal", true);
         const rate = numOf(form, "annual_rate", true);
-        if (!(principal > 0)) return "請輸入借款本金";
         if (!(rate >= 0)) return "請輸入年利率";
-        const start = form.elements.start_date.value;
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) return "請選擇起借日";
+        const draws = [...document.querySelectorAll("#rows-draws .sub-row")]
+          .map((row) => ({
+            date: row.querySelector('[data-k="date"]').value,
+            amount: parseFloat(String(row.querySelector('[data-k="amount"]').value || "").replace(/,/g, "")),
+          }))
+          .filter((d) => d.date || Number.isFinite(d.amount));
+        if (!draws.length) return "請至少輸入一次撥款";
+        if (draws.some((d) => !/^\d{4}-\d{2}-\d{2}$/.test(d.date) || !(d.amount > 0))) return "每次撥款都要有日期和大於 0 的金額";
         const read = (kind) =>
           [...document.querySelectorAll(`#rows-${kind} .sub-row`)]
             .map((row) => {
@@ -500,17 +515,18 @@
         if (coll.some((r) => !(r.shares > 0))) return "擔保品的股數要大於 0";
         if (buys.some((r) => !(r.shares > 0) || !(r.cost >= 0))) return "買進的股數與成本要填數字";
         const prevBuys = isNew ? [] : l.purchases;
-        const next = {
+        const next = C.withDraws({
           id: l.id,
           name: form.elements.name.value.trim(),
-          principal,
+          principal: 0,
           annual_rate: rate / 100,
-          start_date: start,
+          start_date: "",
+          draws,
           interest_paid: numOf(form, "interest_paid") || 0,
           realized_pnl: numOf(form, "realized_pnl") || 0,
           collateral: coll.map(({ symbol, shares }) => ({ symbol, shares })),
           purchases: buys.map((b) => ({ ...b, dividends: prevBuys.find((p) => p.symbol === b.symbol)?.dividends || 0 })),
-        };
+        });
         if (isNew) state.loans.push(next);
         else state.loans[i] = next;
       },

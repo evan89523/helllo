@@ -89,6 +89,17 @@ start_date = "2026-03-02"
 interest_paid = 8000      # 已繳利息（未繳的部分會計入負債）
 realized_pnl = 0          # 用這筆借款買賣已實現的損益
 
+# 同一個借款帳戶分好幾次撥款（例如證金擔保放款）時，可改用 draws，
+# 本金＝撥款合計、利息各自從撥款日起算，此時不需要 principal 與 start_date：
+# [[loans]]
+# id = "sf-1"
+# name = "證金擔保放款"
+# annual_rate = 0.0392
+# draws = [
+#   { date = "2026-08-05", amount = 600000 },
+#   { date = "2026-08-13", amount = 400000 },
+# ]
+
 # 擔保品：質押了哪些股票、幾股（維持率 = 擔保品市值 / 借款本金）
 [[loans.collateral]]
 symbol = "2330"

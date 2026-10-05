@@ -38,6 +38,11 @@ class Trend:
         return self.known and self.price >= self.ma
 
 
+def is_etf(symbol: str) -> bool:
+    """台灣 ETF 代號以 00 開頭（例如 0050、006208、00679B）。"""
+    return symbol.startswith("00")
+
+
 def compute_trend(symbol: str, history: list[float], ma_days: int) -> Trend:
     if len(history) < ma_days:
         return Trend(symbol, history[-1] if history else None, None, len(history))
@@ -123,6 +128,8 @@ def advise(summary: Summary, strategy: Strategy, trend: Trend) -> tuple[str, lis
 
     # 4. 集中度
     for symbol, ratio in summary.concentration():
+        if is_etf(symbol):
+            continue  # ETF 本身已分散持股，不套用單一持股上限
         if ratio > s.max_single_position:
             excess = (ratio - s.max_single_position) * net
             out.append(

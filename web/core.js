@@ -63,12 +63,15 @@
       dividends: num(h.dividends),
       company_match: num(h.company_match),
     }));
-    s.loans = (raw.loans || []).map((l, i) => ({
+    s.loans = (raw.loans || []).map((l, i) => withDraws({
       id: String(l.id || `loan-${i + 1}`),
       name: l.name || "",
       principal: num(l.principal),
       annual_rate: num(l.annual_rate),
       start_date: String(l.start_date || "").slice(0, 10),
+      draws: (l.draws || [])
+        .map((d) => ({ date: String(d.date || "").slice(0, 10), amount: num(d.amount) }))
+        .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d.date) && d.amount > 0),
       interest_paid: num(l.interest_paid),
       realized_pnl: num(l.realized_pnl),
       collateral: (l.collateral || []).map((c) => ({ symbol: sym(c.symbol), shares: num(c.shares) })),
@@ -89,6 +92,19 @@
     }
     s.history = Array.isArray(raw.history) ? raw.history : [];
     return s;
+  }
+
+  // 同一個借款帳戶可分多次撥款：有撥款紀錄時，本金＝撥款合計、起借日＝最早撥款日；
+  // 沒有撥款紀錄的舊資料，視為在起借日一次撥款
+  function withDraws(l) {
+    if (l.draws.length) {
+      l.draws.sort((a, b) => (a.date < b.date ? -1 : 1));
+      l.principal = l.draws.reduce((a, d) => a + d.amount, 0);
+      l.start_date = l.draws[0].date;
+    } else if (l.principal > 0 && l.start_date) {
+      l.draws = [{ date: l.start_date, amount: l.principal }];
+    }
+    return l;
   }
 
   function daysBetween(start, asOf) {
@@ -142,7 +158,7 @@
 
     const loans = state.loans.map((l) => {
       const days = daysBetween(l.start_date, asOf);
-      const accrued = (l.principal * l.annual_rate * days) / 365;
+      const accrued = l.draws.reduce((a, d) => a + (d.amount * l.annual_rate * daysBetween(d.date, asOf)) / 365, 0);
       let coll = 0;
       for (const c of l.collateral) {
         pledged[c.symbol] = (pledged[c.symbol] || 0) + c.shares;
@@ -238,6 +254,9 @@
     };
   }
 
+  // 台灣 ETF 代號以 00 開頭（例如 0050、006208、00679B）
+  const isEtf = (symbol) => String(symbol).startsWith("00");
+
   function computeTrend(symbol, history, maDays) {
     const closes = history.map((r) => r[1]);
     if (closes.length < maDays) return { symbol, price: closes.at(-1) ?? null, ma: null, days: closes.length, known: false, up: false };
@@ -313,6 +332,7 @@
     }
 
     for (const [symbol, ratio] of s.concentration) {
+      if (isEtf(symbol)) continue; // ETF 本身已分散持股，不套用單一持股上限
       if (ratio > st.max_single_position) {
         const excess = (ratio - st.max_single_position) * net;
         out.push({
@@ -477,6 +497,8 @@
     quotesFromFeed,
     snapshot,
     daysBetween,
+    withDraws,
+    isEtf,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.Core = api;

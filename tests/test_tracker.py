@@ -12,7 +12,7 @@ from asset_tracker import cli, prices
 from asset_tracker.advisor import Trend, advise, compute_trend
 from asset_tracker.brokers import cathay
 from asset_tracker.dashboard import funding_splits, render_dashboard
-from asset_tracker.config import Collateral, Holding, Loan, Portfolio, Purchase, Strategy, load
+from asset_tracker.config import Collateral, Draw, Holding, Loan, Portfolio, Purchase, Strategy, load
 from asset_tracker.portfolio import evaluate
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -61,6 +61,31 @@ class EvaluateTest(unittest.TestCase):
         self.assertAlmostEqual(s.equity_leverage, 4_800_000 / net)
         self.assertAlmostEqual(s.asset_leverage, holdings / net)
         self.assertAlmostEqual(s.bond_ratio, 600_000 / holdings)
+
+    def test_multiple_draws(self):
+        # 元大證金式：同一帳戶分三次撥款，利息各自起算，維持率以合計本金計算
+        p = make_portfolio()
+        p.loans[0] = Loan(
+            id="SF", principal=0, annual_rate=0.0392, start_date=date(2026, 8, 5),
+            draws=[Draw(date(2026, 8, 5), 600_000), Draw(date(2026, 8, 13), 400_000), Draw(date(2026, 9, 4), 192_000)],
+            collateral=[Collateral("0050", 10000)],
+        )
+        p.loans[0].principal = sum(d.amount for d in p.loans[0].draws)
+        s = evaluate(p, PRICES, as_of=date(2026, 10, 5))
+        loan = s.loans[0]
+        expected = (600_000 * 61 + 400_000 * 53 + 192_000 * 31) * 0.0392 / 365
+        self.assertAlmostEqual(loan.interest_accrued, expected)
+        self.assertAlmostEqual(loan.maintenance, 1_800_000 / 1_192_000)
+
+    def test_draws_from_config(self):
+        from asset_tracker.config import _loan
+
+        loan = _loan({"id": "SF", "annual_rate": 0.0392, "draws": [
+            {"date": "2026-08-13", "amount": 400000}, {"date": "2026-08-05", "amount": 600000}]})
+        self.assertEqual(loan.principal, 1_000_000)
+        self.assertEqual(loan.start_date, date(2026, 8, 5))
+        legacy = _loan({"id": "L", "principal": 5, "annual_rate": 0.01, "start_date": "2026-01-01"})
+        self.assertEqual([(d.date, d.amount) for d in legacy.draws], [(date(2026, 1, 1), 5.0)])
 
     def test_leveraged_etf_exposure(self):
         p = make_portfolio()
@@ -112,6 +137,15 @@ class AdvisorTest(unittest.TestCase):
         s = evaluate(make_portfolio(principal=500_000, bond_shares=40000), PRICES, as_of=date(2026, 1, 1))
         verdict, _ = advise(s, strat, self.down)
         self.assertEqual(verdict, "維持")
+
+    def test_etf_exempt_from_single_position_limit(self):
+        p = make_portfolio(principal=500_000, bond_shares=40000)
+        p.holdings[0].shares = 0  # 只剩 0050 是大部位
+        p.holdings[1].shares = 30000
+        s = evaluate(p, PRICES, as_of=date(2026, 1, 1))
+        self.assertGreater(dict(s.concentration())["0050"], Strategy().max_single_position)
+        _, advice = advise(s, Strategy(), self.up)
+        self.assertFalse(any(a.level == "分散" for a in advice))
 
     def test_trend_requires_enough_history(self):
         self.assertFalse(compute_trend("0050", [1.0] * 10, 60).known)
