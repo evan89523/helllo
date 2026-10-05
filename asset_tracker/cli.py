@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import webbrowser
 from datetime import date
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from . import prices as px
 from .advisor import advise, compute_trend
 from .brokers import cathay
 from .config import ConfigError, Portfolio, load
+from .dashboard import render_dashboard
 from .portfolio import evaluate
 from .report import render
 from .storage import Store
@@ -84,14 +86,22 @@ def run_report(args, save: bool) -> int:
         trend = compute_trend(st.benchmark.upper(), history, st.trend_ma_days)
         verdict, advice = advise(summary, st, trend)
         text = render(summary, st, trend, verdict, advice)
+        page = render_dashboard(summary, st, trend, verdict, advice)
+        portfolio.report_dir.mkdir(parents=True, exist_ok=True)
+        dash = portfolio.report_dir / "dashboard.html"
+        dash.write_text(page, encoding="utf-8")
 
         if save:
             store.save_snapshot(as_of, summary.to_dict(), verdict)
-            portfolio.report_dir.mkdir(parents=True, exist_ok=True)
             out = portfolio.report_dir / f"{as_of.isoformat()}.md"
             out.write_text(text, encoding="utf-8")
             text += f"\n（報告已存到 {out}）\n"
-        print(text)
+        if getattr(args, "gui", False):
+            print(f"儀表板：{dash.resolve()}")
+            if not args.no_open:
+                webbrowser.open(dash.resolve().as_uri())
+        else:
+            print(text + f"（儀表板：{dash}）\n")
         return 2 if verdict == "緊急" else 0
     finally:
         store.close()
@@ -170,8 +180,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-c", "--config", default="portfolio.toml", help="設定檔路徑（預設 portfolio.toml）")
     sub = p.add_subparsers(dest="command", required=True)
 
-    for name, help_text in (("daily", "抓收盤價、計算、存快照與報告（每天跑一次）"), ("report", "只計算並顯示，不存檔")):
+    for name, help_text in (
+        ("daily", "抓收盤價、計算、存快照與報告（每天跑一次）"),
+        ("report", "只計算並顯示，不存快照"),
+        ("gui", "產生並開啟儀表板（我的錢 vs 借來的錢）"),
+    ):
         sp = sub.add_parser(name, help=help_text)
+        if name == "gui":
+            sp.add_argument("--no-open", action="store_true", help="只產生 HTML，不自動開瀏覽器")
         sp.add_argument("--offline", action="store_true", help="不連網，用資料庫裡最後的價格")
         sp.add_argument("--price", action="append", metavar="SYMBOL=PRICE", help="手動指定價格，可重複")
         sp.add_argument("--date", help="計算日期 YYYY-MM-DD（預設今天）")
@@ -196,6 +212,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "daily":
             return run_report(args, save=True)
         if args.command == "report":
+            return run_report(args, save=False)
+        if args.command == "gui":
+            args.gui = True
             return run_report(args, save=False)
         if args.command == "history":
             return cmd_history(args)

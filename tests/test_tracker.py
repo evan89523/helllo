@@ -9,6 +9,7 @@ from pathlib import Path
 from asset_tracker import cli, prices
 from asset_tracker.advisor import Trend, advise, compute_trend
 from asset_tracker.brokers import cathay
+from asset_tracker.dashboard import funding_splits, render_dashboard
 from asset_tracker.config import Collateral, Holding, Loan, Portfolio, Purchase, Strategy, load
 from asset_tracker.portfolio import evaluate
 
@@ -117,6 +118,37 @@ class AdvisorTest(unittest.TestCase):
         self.assertTrue(t.up)
 
 
+class DashboardTest(unittest.TestCase):
+    def test_funding_splits(self):
+        p = make_portfolio(cash=300_000)
+        p.holdings.append(Holding(symbol="2882", category="trust", shares=1000, cost=50_000))
+        p.loans[0].collateral.append(Collateral("2882", 1000))  # 信託不可質押，應被忽略
+        s = evaluate(p, {**PRICES, "2882": 60.0}, as_of=date(2026, 1, 1))
+        rows = {x.label: x for x in funding_splits(s)}
+        tsmc, etf, trust, cash = rows["2330"], rows["0050"], rows["2882"], rows["現金"]
+        self.assertAlmostEqual(tsmc.own_pledged, 2_000_000)
+        self.assertAlmostEqual(tsmc.own_free, 1_000_000)
+        self.assertAlmostEqual(etf.borrowed, 900_000)
+        self.assertAlmostEqual(etf.own_free, 900_000)
+        self.assertAlmostEqual(trust.own_free, 60_000)
+        self.assertEqual(trust.borrowed + trust.own_pledged, 0)
+        # 借 1,000,000、登記買進 800,000 → 200,000 視為還在現金中
+        self.assertAlmostEqual(cash.borrowed, 200_000)
+        self.assertAlmostEqual(cash.own_free, 100_000)
+        # 每個部位拆分後總和等於市值
+        for pos in s.positions:
+            self.assertAlmostEqual(rows[pos.holding.symbol].total, pos.market_value)
+
+    def test_render_escapes_names(self):
+        p = make_portfolio()
+        p.holdings[0].name = "<script>x</script>"
+        s = evaluate(p, PRICES, as_of=date(2026, 1, 1))
+        verdict, advice = advise(s, Strategy(), Trend("0050", None, None, 0))
+        page = render_dashboard(s, Strategy(), Trend("0050", None, None, 0), verdict, advice)
+        self.assertNotIn("<script>x</script>", page)
+        self.assertIn("我的錢", page)
+
+
 class PricesTest(unittest.TestCase):
     def test_parse_tables(self):
         twse = [{"Code": "2330", "ClosingPrice": "1,005.00", "Date": "1150903"}, {"Code": "9999", "ClosingPrice": "--"}]
@@ -175,6 +207,7 @@ class CliTest(unittest.TestCase):
             self.assertIn("股票等效槓桿", out)
             self.assertIn("質押損益", out)
             self.assertTrue((Path(d) / "reports" / "2026-10-05.md").exists())
+            self.assertTrue((Path(d) / "reports" / "dashboard.html").exists())
             buf = io.StringIO()
             with redirect_stdout(buf):
                 cli.main(["-c", str(cfg), "history"])

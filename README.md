@@ -22,6 +22,20 @@ python -m asset_tracker daily              # 抓收盤價、計算、存快照�
 python -m asset_tracker history            # 看每天槓桿、維持率、質押損益的變化
 ```
 
+## 圖形介面：我的錢 vs 借來的錢
+
+```bash
+python -m asset_tracker gui        # 產生 reports/dashboard.html 並用瀏覽器打開
+```
+
+`daily` 每次執行也會更新 `reports/dashboard.html`。儀表板是單一離線 HTML 檔，不載入任何外部資源，資料只留在本機。範例畫面見 `docs/dashboard-sample.html`（範例數字）。
+
+- **總資產長條**：藍色是我的錢（淨值），橘色是借來的錢（借款本金＋未繳利息）
+- **每筆資產的資金來源**：藍色＝自有資金買的、藍色斜線＝自有但質押給券商、橘色＝用借款買的（依 `loans.purchases` 股數 × 現價）
+- 借款本金扣掉已登記買進成本後的餘額，視為還放在現金裡，會標成橘色
+- **借款卡片**：借多少、買了什麼、質押了什麼、維持率狀態、跌多少會追繳、質押損益
+- 支援深色模式與手機；滑鼠移到長條上可看精確金額，也有表格檢視
+
 其他用法：
 
 ```bash
