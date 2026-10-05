@@ -138,6 +138,15 @@ class AdvisorTest(unittest.TestCase):
         verdict, _ = advise(s, strat, self.down)
         self.assertEqual(verdict, "維持")
 
+    def test_etf_exempt_from_single_position_limit(self):
+        p = make_portfolio(principal=500_000, bond_shares=40000)
+        p.holdings[0].shares = 0  # 只剩 0050 是大部位
+        p.holdings[1].shares = 30000
+        s = evaluate(p, PRICES, as_of=date(2026, 1, 1))
+        self.assertGreater(dict(s.concentration())["0050"], Strategy().max_single_position)
+        _, advice = advise(s, Strategy(), self.up)
+        self.assertFalse(any(a.level == "分散" for a in advice))
+
     def test_trend_requires_enough_history(self):
         self.assertFalse(compute_trend("0050", [1.0] * 10, 60).known)
         t = compute_trend("0050", list(range(1, 61)), 60)

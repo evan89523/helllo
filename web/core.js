@@ -254,6 +254,9 @@
     };
   }
 
+  // 台灣 ETF 代號以 00 開頭（例如 0050、006208、00679B）
+  const isEtf = (symbol) => String(symbol).startsWith("00");
+
   function computeTrend(symbol, history, maDays) {
     const closes = history.map((r) => r[1]);
     if (closes.length < maDays) return { symbol, price: closes.at(-1) ?? null, ma: null, days: closes.length, known: false, up: false };
@@ -329,6 +332,7 @@
     }
 
     for (const [symbol, ratio] of s.concentration) {
+      if (isEtf(symbol)) continue; // ETF 本身已分散持股，不套用單一持股上限
       if (ratio > st.max_single_position) {
         const excess = (ratio - st.max_single_position) * net;
         out.push({
@@ -494,6 +498,7 @@
     snapshot,
     daysBetween,
     withDraws,
+    isEtf,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.Core = api;
