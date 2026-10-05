@@ -1,6 +1,6 @@
 // 離線快取：有網路時一律先抓最新檔案（並更新快取），沒網路才用快取，
 // 避免新舊版本的 app.js／core.js 混在一起。股價檔與跨網域請求不經過快取。
-const CACHE = "asset-tracker-v4";
+const CACHE = "asset-tracker-v5";
 const SHELL = ["./", "index.html", "core.js", "app.js", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png"];
 
 self.addEventListener("install", (e) => {
