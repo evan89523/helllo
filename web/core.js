@@ -484,6 +484,7 @@
   }
 
   const api = {
+    VERSION: 4, // 與 app.js 的 APP_VERSION 一致；不一致代表手機上新舊檔案混用
     DEFAULT_STRATEGY,
     LEVELS,
     emptyState,
