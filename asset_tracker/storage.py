@@ -64,6 +64,14 @@ class Store:
         ).fetchall()
         return [r[0] for r in reversed(rows)]
 
+    def price_rows(self, symbol: str, limit: int) -> list[tuple[str, float]]:
+        """回傳最近 limit 筆 (日期, 收盤價)，由舊到新。"""
+        rows = self.conn.execute(
+            "SELECT date, close FROM prices WHERE symbol = ? ORDER BY date DESC LIMIT ?",
+            (symbol, limit),
+        ).fetchall()
+        return [(d, c) for d, c in reversed(rows)]
+
     def save_snapshot(self, day: date, summary: dict, verdict: str) -> None:
         self.conn.execute(
             """INSERT OR REPLACE INTO snapshots

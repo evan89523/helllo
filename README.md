@@ -36,6 +36,35 @@ python -m asset_tracker gui        # 產生 reports/dashboard.html 並用瀏覽�
 - **借款卡片**：借多少、買了什麼、質押了什麼、維持率狀態、跌多少會追繳、質押損益
 - 支援深色模式與手機；滑鼠移到長條上可看精確金額，也有表格檢視
 
+## iPhone App（`web/`）
+
+`web/` 是可以加到 iPhone 主畫面的網頁 App（PWA），計算規則與電腦版相同（有測試確認兩邊數字一致）。
+
+- 四個分頁：**總覽**（我的錢 vs 借來的錢、槓桿、維持率、建議、壓力測試）、**持股**、**借款**、**設定**
+- 可以直接在手機上新增、修改持股與質押借款，也能手動輸入價格
+- 「更新股價」會嘗試直接抓證交所／櫃買中心收盤價；若被瀏覽器的跨網域限制擋下，就改用手動輸入
+- 每天打開總覽會自動記錄一筆（淨值、借款、槓桿、維持率、質押損益）
+- 資料只存在手機的 Safari 儲存空間，不會上傳；請定期用「設定 → 匯出備份」存一份
+
+### 安裝到 iPhone
+
+App 需要放在 HTTPS 網址上才能安裝：
+
+1. **GitHub Pages**：repo 設定 → Pages → Source 選「GitHub Actions」，推到 `master` 後 `.github/workflows/pages.yml` 會自動部署 `web/`
+   （只部署程式碼，不含任何持股資料；私人 repo 使用 Pages 需要付費方案）
+2. 用 iPhone 的 Safari 打開網址 → 分享 → **加入主畫面**
+
+在電腦上試用：`cd web && python3 -m http.server 8000`，再用瀏覽器開 `http://localhost:8000`。
+
+### 電腦與手機同步資料
+
+```bash
+python -m asset_tracker export-json     # 產生 portfolio-export.json（含持股、借款、價格歷史）
+```
+
+用 AirDrop 或 iCloud 雲碟把檔案傳到手機，在 App 的「設定 → 匯入 JSON」選擇它。
+手機上也能「匯出備份」成同樣格式的 JSON。這個檔案含有完整財務資料，傳完請刪除多餘的副本。
+
 其他用法：
 
 ```bash

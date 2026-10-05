@@ -5,3 +5,5 @@ data/
 reports/
 __pycache__/
 *.pyc
+portfolio-export.json
+asset-tracker-*.json

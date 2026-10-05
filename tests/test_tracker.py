@@ -1,4 +1,6 @@
 import io
+import json
+import subprocess
 import shutil
 import tempfile
 import unittest
@@ -212,6 +214,59 @@ class CliTest(unittest.TestCase):
             with redirect_stdout(buf):
                 cli.main(["-c", str(cfg), "history"])
             self.assertIn("2026-10-05", buf.getvalue())
+
+
+@unittest.skipUnless(shutil.which("node"), "需要 Node.js")
+class WebCoreParityTest(unittest.TestCase):
+    """手機版（web/core.js）與 Python 版的計算結果必須一致。"""
+
+    def test_same_numbers(self):
+        from asset_tracker.advisor import compute_trend as py_trend
+        from asset_tracker.storage import Store
+
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Path(d) / "portfolio.toml"
+            shutil.copy(ROOT / "portfolio.example.toml", cfg)
+            portfolio = load(cfg)
+            store = Store(portfolio.db_path)
+            prices = {"2330": 1000.0, "0050": 180.0, "2882": 60.0, "00679B": 30.0}
+            store.save_prices(date(2026, 10, 5), prices, "test")
+            for i in range(60):  # 讓趨勢判斷有足夠資料
+                store.save_prices(date(2026, 6, 1) + __import__("datetime").timedelta(days=i), {"0050": 150.0 + i * 0.1}, "test")
+            data = cli.portfolio_to_json(portfolio, store)
+            history = store.price_history("0050", date(2026, 10, 5), 60)
+            store.close()
+            f = Path(d) / "export.json"
+            f.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+            out = subprocess.run(
+                ["node", str(ROOT / "tests" / "web_core_eval.js"), str(f), "2026-10-05"],
+                capture_output=True, text=True, check=True,
+            )
+        js = json.loads(out.stdout)
+
+        s = evaluate(portfolio, prices, as_of=date(2026, 10, 5))
+        trend = py_trend("0050", history, 60)
+        verdict, advice = advise(s, portfolio.strategy, trend)
+        for key, py in (
+            ("gross", s.gross_assets), ("liabilities", s.liabilities), ("net", s.net_equity),
+            ("assetLeverage", s.asset_leverage), ("equityLeverage", s.equity_leverage),
+            ("bondRatio", s.bond_ratio), ("minMaintenance", s.min_maintenance), ("pledgePnl", s.pledge_pnl),
+        ):
+            self.assertAlmostEqual(js[key], py, places=6, msg=key)
+        self.assertEqual(js["verdict"], verdict)
+        self.assertEqual(js["levels"], [a.level for a in advice])
+        for a, b in zip(js["amounts"], [a.amount for a in advice]):
+            if b is None:
+                self.assertIsNone(a)
+            else:
+                self.assertAlmostEqual(a, b, places=4)
+        py_splits = [(("CASH" if x.label == "現金" else x.label.split()[0]), x.own_free, x.own_pledged, x.borrowed)
+                     for x in funding_splits(s)]
+        self.assertEqual(len(js["splits"]), len(py_splits))
+        for (js_sym, *js_v), (py_sym, *py_v) in zip(js["splits"], py_splits):
+            self.assertEqual(js_sym, py_sym)
+            for a, b in zip(js_v, py_v):
+                self.assertAlmostEqual(a, b, places=6)
 
 
 if __name__ == "__main__":

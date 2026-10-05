@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>資產追蹤</title>
+<meta name="description" content="記錄正股、持股信託、美債 ETF 與質押借款，區分自己的錢與借來的錢。">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="資產追蹤">
+<meta name="theme-color" content="#f9f9f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d0d0d" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface: #fcfcfb; --raised: #ffffff; --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
+  --grid: #e1e0d9; --ring: rgba(11,11,11,0.10); --field: #f0efec;
+  --own: #2a78d6; --own-dark: #1c5cab; --borrowed: #eb6834; --borrowed-ink: #b9441a;
+  --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b;
+  --pos: #006300; --neg: #d03b3b; --accent: #2a78d6;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --raised: #232322; --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --ring: rgba(255,255,255,0.10); --field: #2c2c2a;
+    --own: #3987e5; --own-dark: #184f95; --borrowed: #d95926; --borrowed-ink: #f08a5d;
+    --pos: #0ca30c; --neg: #e66767; --accent: #3987e5;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface: #1a1a19; --raised: #232322; --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
+  --grid: #2c2c2a; --ring: rgba(255,255,255,0.10); --field: #2c2c2a;
+  --own: #3987e5; --own-dark: #184f95; --borrowed: #d95926; --borrowed-ink: #f08a5d;
+  --pos: #0ca30c; --neg: #e66767; --accent: #3987e5;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; background: var(--page); color: var(--ink); }
+body {
+  font: 16px/1.5 system-ui, -apple-system, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
+  -webkit-text-size-adjust: 100%;
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+.topbar { position: sticky; top: 0; z-index: 5; background: var(--page); display: flex; align-items: center;
+  justify-content: space-between; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--grid); }
+.topbar h1 { font-size: 20px; margin: 0; }
+.topbar .sub { font-size: 12px; color: var(--muted); }
+main { max-width: 720px; margin: 0 auto; padding: 12px 16px calc(96px + env(safe-area-inset-bottom)); }
+h2 { font-size: 17px; margin: 24px 0 10px; }
+h3 { font-size: 16px; margin: 0; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.card { background: var(--surface); border: 1px solid var(--ring); border-radius: 14px; padding: 16px; margin-bottom: 12px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.grid2 .card { margin: 0; padding: 12px 14px; }
+.k { color: var(--ink-2); font-size: 13px; display: flex; align-items: center; gap: 6px; }
+.v { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.v.big { font-size: 30px; }
+.s { color: var(--muted); font-size: 12px; }
+.sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; flex: none; }
+.sw.own { background: var(--own); }
+.sw.borrowed { background: var(--borrowed); }
+.sw.pledged { background: var(--own); background-image: repeating-linear-gradient(45deg, transparent 0 3px, var(--own-dark) 3px 5px); }
+.bar { display: flex; gap: 2px; height: 40px; margin-top: 12px; }
+.bar.thin { height: 16px; margin-top: 6px; }
+.seg { min-width: 2px; display: flex; align-items: center; padding: 0 10px; color: #fff; font-weight: 600;
+  font-size: 14px; white-space: nowrap; overflow: hidden; }
+.seg:first-child { border-radius: 4px 0 0 4px; }
+.seg:last-child { border-radius: 0 4px 4px 0; }
+.seg:only-child { border-radius: 4px; }
+.seg.own { background: var(--own); }
+.seg.pledged { background-image: repeating-linear-gradient(45deg, transparent 0 4px, var(--own-dark) 4px 7px); }
+.seg.borrowed { background: var(--borrowed); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px; color: var(--ink-2); font-size: 13px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.row { padding: 10px 0; border-top: 1px solid var(--grid); }
+.row:first-child { border-top: 0; padding-top: 0; }
+.row-head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.row-name { font-weight: 600; }
+.row-val { font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
+.tag { font-size: 11px; border-radius: 999px; padding: 1px 7px; margin-left: 4px; border: 1px solid; white-space: nowrap; }
+.tag-borrowed { color: var(--borrowed-ink); border-color: var(--borrowed); }
+.tag-own { color: var(--ink-2); border-color: var(--grid); }
+dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; margin: 12px 0 0; font-size: 14px; }
+dt { color: var(--ink-2); }
+dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.borrowed-ink { color: var(--borrowed-ink); font-weight: 650; }
+.pos { color: var(--pos); font-weight: 600; }
+.neg { color: var(--neg); font-weight: 600; }
+.status { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600;
+  padding: 2px 10px 2px 4px; border-radius: 999px; border: 1px solid var(--ring); }
+.status .ico { width: 18px; height: 18px; border-radius: 50%; display: inline-grid; place-items: center; color: #fff; font-size: 11px; }
+.st-good .ico { background: var(--good); }
+.st-warning .ico { background: var(--warning); color: #0b0b0b; }
+.st-serious .ico { background: var(--serious); color: #0b0b0b; }
+.st-critical .ico { background: var(--critical); }
+.st-none .ico { background: var(--muted); }
+.verdict { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.adv { flex: none; font-size: 12px; font-weight: 700; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--grid); }
+.adv-緊急 { border-color: var(--critical); color: var(--neg); }
+.adv-避險, .adv-減碼 { border-color: var(--serious); }
+.adv-加碼 { border-color: var(--good); color: var(--pos); }
+ul.advice { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+ul.advice li { display: flex; gap: 10px; align-items: flex-start; }
+ul.advice p { margin: 2px 0 0; color: var(--ink-2); font-size: 14px; }
+.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { padding: 6px 6px; border-bottom: 1px solid var(--grid); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--ink-2); font-weight: 600; }
+.btn { appearance: none; border: 1px solid var(--ring); background: var(--raised); border-radius: 10px;
+  padding: 8px 14px; font-weight: 600; cursor: pointer; min-height: 40px; }
+.btn.primary { background: var(--accent); color: #fff; border-color: transparent; }
+.btn.danger { color: var(--neg); }
+.btn.block { width: 100%; }
+.btn:disabled { opacity: .5; }
+.btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.list-item { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 12px 0;
+  border-top: 1px solid var(--grid); cursor: pointer; }
+.list-item:first-child { border-top: 0; padding-top: 0; }
+.list-item .chev { color: var(--muted); }
+.empty { text-align: center; color: var(--muted); padding: 24px 8px; }
+/* 底部分頁 */
+nav.tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; display: grid; grid-template-columns: repeat(4, 1fr);
+  background: var(--surface); border-top: 1px solid var(--grid); padding-bottom: env(safe-area-inset-bottom); }
+nav.tabs button { appearance: none; border: 0; background: none; padding: 8px 0 6px; display: grid; justify-items: center;
+  gap: 2px; font-size: 11px; color: var(--muted); cursor: pointer; }
+nav.tabs button svg { width: 24px; height: 24px; }
+nav.tabs button[aria-selected="true"] { color: var(--accent); font-weight: 600; }
+/* 編輯面板 */
+.sheet-back { position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 20; display: none; }
+.sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 21; max-height: 92vh; overflow-y: auto;
+  background: var(--page); border-radius: 16px 16px 0 0; padding: 0 16px calc(24px + env(safe-area-inset-bottom));
+  transform: translateY(100%); transition: transform .22s ease; max-width: 720px; margin: 0 auto; }
+.sheet.open { transform: none; }
+.sheet-head { position: sticky; top: 0; background: var(--page); display: flex; justify-content: space-between; align-items: center;
+  padding: 14px 0 10px; border-bottom: 1px solid var(--grid); margin-bottom: 12px; z-index: 1; }
+.field { display: grid; gap: 4px; margin-bottom: 12px; }
+.field label { font-size: 13px; color: var(--ink-2); }
+.field .hint { font-size: 12px; color: var(--muted); }
+.field input, .field select, textarea { width: 100%; border: 1px solid var(--ring); background: var(--field);
+  border-radius: 10px; padding: 10px 12px; font-size: 16px; min-height: 44px; }
+.sub-rows { display: grid; gap: 8px; margin-bottom: 8px; }
+.sub-row { display: grid; grid-template-columns: 1.1fr 1fr 1fr auto; gap: 6px; align-items: center; }
+.sub-row.two { grid-template-columns: 1.2fr 1fr auto; }
+.sub-row input { width: 100%; border: 1px solid var(--ring); background: var(--field); border-radius: 8px; padding: 8px; font-size: 16px; min-width: 0; }
+.sub-row .x { appearance: none; border: 0; background: none; color: var(--neg); font-size: 20px; padding: 0 6px; cursor: pointer; }
+fieldset { border: 1px solid var(--grid); border-radius: 12px; padding: 10px 12px 4px; margin: 0 0 12px; }
+legend { font-size: 13px; color: var(--ink-2); padding: 0 4px; }
+.toast { position: fixed; left: 50%; bottom: calc(80px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+  background: var(--ink); color: var(--page); padding: 10px 16px; border-radius: 999px; font-size: 14px; z-index: 30;
+  opacity: 0; transition: opacity .2s; pointer-events: none; max-width: calc(100% - 32px); text-align: center; }
+.toast.show { opacity: 1; }
+.install { border-color: var(--accent); }
+footer.note { color: var(--muted); font-size: 12px; margin-top: 16px; }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div><h1 id="title">我的錢與借來的錢</h1><div class="sub" id="asof"></div></div>
+  <button class="btn" id="refresh" type="button">更新股價</button>
+</header>
+<main id="view" aria-live="polite"></main>
+<nav class="tabs" role="tablist">
+  <button role="tab" data-tab="overview" aria-selected="true">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>總覽</button>
+  <button role="tab" data-tab="holdings" aria-selected="false">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/></svg>持股</button>
+  <button role="tab" data-tab="loans" aria-selected="false">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 3v18M7 7h7a3 3 0 0 1 0 6H9a3 3 0 0 0 0 6h8"/></svg>借款</button>
+  <button role="tab" data-tab="settings" aria-selected="false">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>設定</button>
+</nav>
+<div class="sheet-back" id="sheetBack"></div>
+<div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle"></div>
+<div class="toast" id="toast" role="status"></div>
+<script src="core.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

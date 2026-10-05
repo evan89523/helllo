@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import webbrowser
 from datetime import date
@@ -158,6 +159,63 @@ def cmd_backfill(args) -> int:
     return 0
 
 
+def portfolio_to_json(portfolio: Portfolio, store: Store, history_days: int = 250) -> dict:
+    """轉成手機版 App（web/）可以匯入的 JSON。"""
+    symbols = {h.symbol for h in portfolio.holdings} | {portfolio.strategy.benchmark.upper()}
+    for loan in portfolio.loans:
+        symbols |= {c.symbol for c in loan.collateral} | {p.symbol for p in loan.purchases}
+    prices = {}
+    history = {}
+    for sym in sorted(symbols):
+        rows = store.price_rows(sym, history_days)
+        if rows:
+            prices[sym] = {"price": rows[-1][1], "date": rows[-1][0], "source": "desktop"}
+            history[sym] = [list(r) for r in rows]
+    for sym, price in portfolio.manual_prices.items():
+        prices.setdefault(sym, {"price": price, "date": None, "source": "manual"})
+    for h in portfolio.holdings:
+        if h.market == "MANUAL" and h.price is not None:
+            prices[h.symbol] = {"price": h.price, "date": None, "source": "manual"}
+    return {
+        "version": 1,
+        "cash": portfolio.cash,
+        "usd_twd": portfolio.usd_twd,
+        "strategy": dict(vars(portfolio.strategy)),
+        "holdings": [
+            {k: v for k, v in vars(h).items() if k != "price"} for h in portfolio.holdings
+        ],
+        "loans": [
+            {
+                **{k: v for k, v in vars(l).items() if k not in ("collateral", "purchases", "start_date")},
+                "start_date": l.start_date.isoformat(),
+                "collateral": [vars(c) for c in l.collateral],
+                "purchases": [vars(p) for p in l.purchases],
+            }
+            for l in portfolio.loans
+        ],
+        "prices": prices,
+        "price_history": history,
+        "history": [],
+    }
+
+
+def cmd_export_json(args) -> int:
+    portfolio = load(args.config)
+    store = Store(portfolio.db_path)
+    try:
+        data = portfolio_to_json(portfolio, store)
+    finally:
+        store.close()
+    text = json.dumps(data, ensure_ascii=False, indent=2)
+    if args.out == "-":
+        print(text)
+    else:
+        Path(args.out).write_text(text, encoding="utf-8")
+        print(f"已寫入 {args.out}，用 AirDrop／iCloud 雲碟傳到手機，在 App 的「設定 → 匯入 JSON」選擇此檔。")
+        print("注意：這個檔案包含你的完整持股與借款資料，傳送後請刪除不需要的副本。")
+    return 0
+
+
 def cmd_import_cathay(args) -> int:
     mapping = {k: v for k, v in _parse_pairs(args.map, "--map").items()}
     try:
@@ -198,6 +256,9 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("backfill", help="從證交所回補歷史收盤價（讓均線趨勢判斷可以馬上使用）")
     sp.add_argument("--months", type=int, default=4)
 
+    sp = sub.add_parser("export-json", help="匯出成手機 App 可匯入的 JSON")
+    sp.add_argument("--out", default="portfolio-export.json", help="輸出路徑，- 表示印到螢幕")
+
     sp = sub.add_parser("import-cathay", help="匯入國泰證券庫存 CSV")
     sp.add_argument("csv")
     sp.add_argument("--out", default="holdings_cathay.toml")
@@ -220,6 +281,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_history(args)
         if args.command == "backfill":
             return cmd_backfill(args)
+        if args.command == "export-json":
+            return cmd_export_json(args)
         if args.command == "import-cathay":
             return cmd_import_cathay(args)
     except ConfigError as e:
