@@ -2,6 +2,28 @@
 (function () {
   "use strict";
   const C = window.Core;
+  const APP_VERSION = 4;
+
+  // 手機上的快取若混到舊版 core.js，清掉快取並重新載入一次（避免按鈕沒反應）
+  if (!C || C.VERSION !== APP_VERSION) {
+    const KEY_RELOAD = "asset-tracker-reloaded";
+    let tried = false;
+    try {
+      tried = sessionStorage.getItem(KEY_RELOAD) === String(APP_VERSION);
+      sessionStorage.setItem(KEY_RELOAD, String(APP_VERSION));
+    } catch (e) {
+      /* 私密模式等情況 */
+    }
+    if (!tried) {
+      const clear = window.caches ? caches.keys().then((ks) => Promise.all(ks.map((k) => caches.delete(k)))) : Promise.resolve();
+      clear.finally(() => location.reload());
+      return;
+    }
+    document.body.insertAdjacentHTML(
+      "afterbegin",
+      '<div style="padding:12px 16px;background:#fab219;color:#0b0b0b;font-size:14px">App 版本不一致，請把 App 完全關掉再重新打開。</div>'
+    );
+  }
   const KEY = "asset-tracker-v1";
   const TWSE_URL = "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL";
   const TPEX_URL = "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes";
@@ -563,6 +585,9 @@
       const msg = (await refreshFromFeed()) || (await refreshDirect());
       save();
       toast(msg);
+    } catch (e) {
+      console.error(e);
+      toast(`更新失敗：${e && e.message ? e.message : e}。請把 App 完全關掉再重新打開`);
     } finally {
       btn.disabled = false;
       btn.textContent = "更新股價";
