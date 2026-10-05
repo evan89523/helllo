@@ -562,14 +562,16 @@
     } catch (e) {
       return null;
     }
-    const { hits, missing, date, usdTwd } = C.quotesFromFeed(feed, state);
+    const { hits, missing, date, usdTwd, usdDate } = C.quotesFromFeed(feed, state);
     const d = date || today();
-    for (const [s, p] of Object.entries(hits)) setPrice(s, p, d, "feed");
-    if (usdTwd) state.prices.USDTWD = { price: usdTwd, date: d, source: "feed" };
+    for (const [s, q] of Object.entries(hits)) setPrice(s, q.price, q.date || d, "feed");
+    if (usdTwd) state.prices.USDTWD = { price: usdTwd, date: usdDate || d, source: "feed" };
     // 預先抓好的大盤歷史價格：補進手機上的價格歷史，讓均線判斷馬上可用
     for (const [s, rows] of Object.entries(feed.history || {})) for (const [hd, hp] of rows) if (hp > 0) mergeHistory(s, hd, hp);
     const n = Object.keys(hits).length;
     const when = d === today() ? "今日" : `${d} `;
+    const old = Object.entries(hits).filter(([, q]) => q.date && q.date < d).map(([s]) => s);
+    if (n && old.length) return `已更新 ${n} 檔；${old.join("、")} 的價格來源今天抓取失敗，暫用較舊的收盤價`;
     if (!n) return `價格檔（${d}）裡找不到你的持股代號，請到「持股」手動輸入`;
     return missing.length ? `已更新 ${when}收盤價 ${n} 檔；找不到：${missing.join("、")}，請手動輸入` : `已更新 ${when}收盤價 ${n} 檔`;
   }
@@ -593,9 +595,9 @@
       }
     }
     if (!tables.twse && !tables.tpex) return "連不上價格來源，請到「持股」手動輸入價格";
-    const feed = { twse: tables.twse?.prices, tpex: tables.tpex?.prices, date: tables.twse?.date || tables.tpex?.date };
-    const { hits, missing, date } = C.quotesFromFeed(feed, state);
-    for (const [s, p] of Object.entries(hits)) setPrice(s, p, date || today(), "auto");
+    const feed = { twse: tables.twse?.prices, tpex: tables.tpex?.prices, dates: { twse: tables.twse?.date, tpex: tables.tpex?.date } };
+    const { hits, missing } = C.quotesFromFeed(feed, state);
+    for (const [s, q] of Object.entries(hits)) setPrice(s, q.price, q.date || today(), "auto");
     const n = Object.keys(hits).length;
     return missing.length ? `更新 ${n} 檔；找不到：${missing.join("、")}，請手動輸入` : `已更新 ${n} 檔收盤價`;
   }

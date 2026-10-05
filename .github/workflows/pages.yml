@@ -31,7 +31,7 @@ jobs:
       - name: Fetch closing prices
         id: prices
         continue-on-error: true
-        run: python scripts/build_prices.py web/prices.json
+        run: python scripts/build_prices.py web/prices.json "https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}/prices.json"
       - name: Keep the last published prices if today's fetch failed
         if: steps.prices.outcome != 'success' && github.ref_name == github.event.repository.default_branch
         run: |

@@ -433,14 +433,19 @@
     for (const h of state.holdings) if (h.market !== "MANUAL") wanted.set(h.symbol, h.market);
     for (const l of state.loans) for (const r of [...l.collateral, ...l.purchases]) if (!wanted.has(r.symbol)) wanted.set(r.symbol, "AUTO");
     if (!wanted.has(state.strategy.benchmark)) wanted.set(state.strategy.benchmark, "AUTO");
+    const dates = feed.dates || {};
+    const dateOf = (src) => dates[src] || feed.date || null;
     const hits = {};
     const missing = [];
     for (const [symbol, market] of wanted) {
+      let src;
+      if (market === "TWSE" || market === "TPEX" || market === "US") src = market.toLowerCase();
+      else src = twse[symbol] !== undefined ? "twse" : "tpex";
       const v = num(pick(symbol, market), NaN);
-      if (v > 0) hits[symbol] = v;
+      if (v > 0) hits[symbol] = { price: v, date: dateOf(src) };
       else missing.push(symbol);
     }
-    return { hits, missing, date: feed.date || null, usdTwd: num(feed.usd_twd, NaN) > 0 ? num(feed.usd_twd) : null };
+    return { hits, missing, date: feed.date || null, usdTwd: num(feed.usd_twd, NaN) > 0 ? num(feed.usd_twd) : null, usdDate: dateOf("us") };
   }
 
   function snapshot(s, verdict) {

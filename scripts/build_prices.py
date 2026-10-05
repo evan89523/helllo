@@ -3,7 +3,7 @@
 由 GitHub Actions 定時執行，輸出檔和 App 放在同一個網站，
 手機就不會被瀏覽器的跨網域限制（CORS）擋下。
 
-用法：python scripts/build_prices.py web/prices.json
+用法：python scripts/build_prices.py web/prices.json [上次發布的 prices.json 網址]
 """
 
 from __future__ import annotations
@@ -34,11 +34,12 @@ def months_back(today: date, n: int) -> list[tuple[int, int]]:
     return out
 
 
-def build(today: date) -> tuple[dict, list[str]]:
+def build(today: date, previous: dict | None = None) -> tuple[dict, list[str]]:
     errors: list[str] = []
     data: dict = {
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "date": None,
+        "dates": {},
         "twse": {},
         "tpex": {},
         "us": {},
@@ -50,10 +51,16 @@ def build(today: date) -> tuple[dict, list[str]]:
         try:
             table, d = px.parse_market_table(px._get_json(url, timeout=60))
             data[key] = table
-            if d and (data["date"] is None or d.isoformat() > data["date"]):
-                data["date"] = d.isoformat()
+            data["dates"][key] = d.isoformat() if d else today.isoformat()
         except Exception as e:  # noqa: BLE001
             errors.append(f"{key}: {e}")
+            if previous and previous.get(key):
+                # 沿用上次成功抓到的資料，並保留它原本的日期
+                data[key] = previous[key]
+                data["dates"][key] = (previous.get("dates") or {}).get(key) or previous.get("date")
+                errors.append(f"{key}: 沿用上次的資料（{data['dates'][key]}）")
+    if data["dates"]:
+        data["date"] = max(d for d in data["dates"].values() if d)
 
     for sym in HISTORY_SYMBOLS:
         rows: dict[date, float] = {}
@@ -77,11 +84,17 @@ def build(today: date) -> tuple[dict, list[str]]:
 
 def main(argv: list[str]) -> int:
     out = Path(argv[1] if len(argv) > 1 else "web/prices.json")
-    data, errors = build(date.today())
+    previous = None
+    if len(argv) > 2:  # 上次發布的 prices.json 網址，某個來源失敗時沿用
+        try:
+            previous = px._get_json(argv[2], timeout=30, attempts=2)
+        except Exception as e:  # noqa: BLE001
+            print(f"warning: 讀不到上次的 prices.json: {e}", file=sys.stderr)
+    data, errors = build(date.today(), previous)
     for e in errors:
         print(f"warning: {e}", file=sys.stderr)
     print(
-        f"date={data['date']} twse={len(data['twse'])} tpex={len(data['tpex'])} "
+        f"dates={data['dates']} twse={len(data['twse'])} tpex={len(data['tpex'])} "
         f"us={len(data['us'])} usd_twd={data['usd_twd']} history={ {k: len(v) for k, v in data['history'].items()} }"
     )
     if not data["twse"] and not data["tpex"]:
