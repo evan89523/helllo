@@ -302,6 +302,13 @@ class CliTest(unittest.TestCase):
 
 
 @unittest.skipUnless(shutil.which("node"), "需要 Node.js")
+class WebSubscriptionsTest(unittest.TestCase):
+    def test_subscription_logic(self):
+        out = subprocess.run(["node", str(ROOT / "tests" / "web_subs_check.js")], capture_output=True, text=True)
+        self.assertEqual(out.returncode, 0, out.stderr)
+
+
+@unittest.skipUnless(shutil.which("node"), "需要 Node.js")
 class WebCoreParityTest(unittest.TestCase):
     """手機版（web/core.js）與 Python 版的計算結果必須一致。"""
 

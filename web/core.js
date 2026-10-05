@@ -37,6 +37,7 @@
       prices: {},
       price_history: {},
       history: [],
+      subscriptions: [],
     };
   }
 
@@ -91,6 +92,7 @@
       if (Array.isArray(v)) s.price_history[sym(k)] = v.filter((r) => Array.isArray(r) && r.length === 2);
     }
     s.history = Array.isArray(raw.history) ? raw.history : [];
+    s.subscriptions = normalizeSubs(raw.subscriptions);
     return s;
   }
 
@@ -252,6 +254,139 @@
       concentration,
       stress,
     };
+  }
+
+  // ---------- 訂閱管理 ----------
+  const SUB_UNITS = ["month", "year", "week"];
+  const SUB_CATEGORIES = ["遊戲", "影音", "音樂", "工具", "生活", "其他"];
+  const isoDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ""));
+
+  function normalizeSubs(list) {
+    return (Array.isArray(list) ? list : [])
+      .map((x, i) => ({
+        id: String(x.id || `sub-${i + 1}`),
+        name: String(x.name || "").trim(),
+        amount: num(x.amount),
+        currency: x.currency === "USD" ? "USD" : "TWD",
+        unit: SUB_UNITS.includes(x.unit) ? x.unit : "month",
+        every: Math.max(1, Math.round(num(x.every, 1))),
+        start_date: isoDate(x.start_date) ? x.start_date : null,
+        category: SUB_CATEGORIES.includes(x.category) ? x.category : "其他",
+        payment: String(x.payment || ""),
+        note: String(x.note || ""),
+        active: x.active !== false,
+      }))
+      .filter((x) => x.name && x.amount >= 0 && x.start_date);
+  }
+
+  // 以 UTC 計算日期，避免時區造成差一天
+  const parseD = (s) => {
+    const [y, m, d] = s.split("-").map(Number);
+    return { y, m, d };
+  };
+  const fmtD = (y, m, d) => `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  const daysInMonth = (y, m) => new Date(Date.UTC(y, m, 0)).getUTCDate();
+
+  // 第 k 次扣款日（k = 0 為首次）；月底日期會落在該月最後一天（例如 1/31 → 2/28）
+  function nthBilling(sub, k) {
+    const { y, m, d } = parseD(sub.start_date);
+    if (sub.unit === "week") {
+      const t = Date.UTC(y, m - 1, d) + k * sub.every * 7 * DAY_MS;
+      const dt = new Date(t);
+      return fmtD(dt.getUTCFullYear(), dt.getUTCMonth() + 1, dt.getUTCDate());
+    }
+    const months = k * sub.every * (sub.unit === "year" ? 12 : 1);
+    const total = y * 12 + (m - 1) + months;
+    const ny = Math.floor(total / 12);
+    const nm = (total % 12) + 1;
+    return fmtD(ny, nm, Math.min(d, daysInMonth(ny, nm)));
+  }
+
+  // today 當天或之後的下一次扣款日
+  function nextBilling(sub, today) {
+    if (sub.start_date >= today) return sub.start_date;
+    // 先估算大約的次數再微調，避免長期訂閱逐次迴圈
+    const per = sub.unit === "week" ? sub.every * 7 : sub.every * (sub.unit === "year" ? 365.25 : 30.44);
+    let k = Math.max(0, Math.floor(daysBetween(sub.start_date, today) / per) - 1);
+    while (nthBilling(sub, k) < today) k++;
+    return nthBilling(sub, k);
+  }
+
+  function subToTwd(amount, sub, usdTwd) {
+    if (sub.currency !== "USD") return amount;
+    return usdTwd ? amount * usdTwd : null;
+  }
+
+  // 換算成「每月平均」台幣
+  function monthlyCost(sub, usdTwd) {
+    const perMonth =
+      sub.unit === "week" ? (sub.amount * 52) / 12 / sub.every : sub.unit === "year" ? sub.amount / (12 * sub.every) : sub.amount / sub.every;
+    return subToTwd(perMonth, sub, usdTwd);
+  }
+
+  function subsSummary(subs, today, usdTwd, withinDays = 30) {
+    const active = subs.filter((x) => x.active);
+    const rows = subs
+      .map((x) => {
+        const next = nextBilling(x, today);
+        return { sub: x, next, inDays: daysBetween(today, next), monthly: monthlyCost(x, usdTwd), chargeTwd: subToTwd(x.amount, x, usdTwd) };
+      })
+      .sort((a, b) => (a.sub.active === b.sub.active ? (a.next < b.next ? -1 : 1) : a.sub.active ? -1 : 1));
+    const monthlyKnown = active.map((x) => monthlyCost(x, usdTwd));
+    const missingRate = monthlyKnown.some((v) => v === null);
+    const monthly = monthlyKnown.reduce((a, v) => a + (v || 0), 0);
+    const byCategory = {};
+    for (const x of active) byCategory[x.category] = (byCategory[x.category] || 0) + (monthlyCost(x, usdTwd) || 0);
+    return {
+      rows,
+      activeCount: active.length,
+      monthly,
+      yearly: monthly * 12,
+      missingRate,
+      byCategory,
+      upcoming: rows.filter((r) => r.sub.active && r.inDays <= withinDays),
+    };
+  }
+
+  // 每月 29～31 日扣款：行事曆預設會跳過沒有該日的月份，改成「該日或當月最後一天」
+  function monthEndRule(x) {
+    const d = parseD(x.start_date).d;
+    if (x.unit !== "month" || d <= 28) return "";
+    const days = [];
+    for (let i = 28; i <= d; i++) days.push(i);
+    return `;BYMONTHDAY=${days.join(",")};BYSETPOS=-1`;
+  }
+
+  // 產生 iCalendar（.ics），每個訂閱一個重複事件，前一天提醒
+  function buildIcs(subs, today, usdTwd) {
+    const esc = (t) => String(t).replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
+    const freq = { month: "MONTHLY", year: "YEARLY", week: "WEEKLY" };
+    const stamp = today.replace(/-/g, "") + "T000000Z";
+    const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//asset-tracker//subscriptions//ZH", "CALSCALE:GREGORIAN", "X-WR-CALNAME:訂閱扣款"];
+    for (const x of subs.filter((s) => s.active)) {
+      const next = nextBilling(x, today).replace(/-/g, "");
+      const end = new Date(Date.UTC(+next.slice(0, 4), +next.slice(4, 6) - 1, +next.slice(6, 8)) + DAY_MS);
+      const endStr = fmtD(end.getUTCFullYear(), end.getUTCMonth() + 1, end.getUTCDate()).replace(/-/g, "");
+      const amt = x.currency === "USD" ? `US$${x.amount}` : `NT$${Math.round(x.amount).toLocaleString("en-US")}`;
+      lines.push(
+        "BEGIN:VEVENT",
+        `UID:${x.id}@asset-tracker`,
+        `DTSTAMP:${stamp}`,
+        `DTSTART;VALUE=DATE:${next}`,
+        `DTEND;VALUE=DATE:${endStr}`,
+        `RRULE:FREQ=${freq[x.unit]};INTERVAL=${x.every}${monthEndRule(x)}`,
+        `SUMMARY:${esc(`扣款：${x.name} ${amt}`)}`,
+        `DESCRIPTION:${esc([x.payment && `付款方式：${x.payment}`, x.note].filter(Boolean).join("\n"))}`,
+        "BEGIN:VALARM",
+        "ACTION:DISPLAY",
+        `DESCRIPTION:${esc(`明天扣款：${x.name}`)}`,
+        "TRIGGER:-P1D",
+        "END:VALARM",
+        "END:VEVENT"
+      );
+    }
+    lines.push("END:VCALENDAR");
+    return lines.join("\r\n") + "\r\n";
   }
 
   // 台灣 ETF 代號以 00 開頭（例如 0050、006208、00679B）
@@ -484,7 +619,7 @@
   }
 
   const api = {
-    VERSION: 4, // 與 app.js 的 APP_VERSION 一致；不一致代表手機上新舊檔案混用
+    VERSION: 5, // 與 app.js 的 APP_VERSION 一致；不一致代表手機上新舊檔案混用
     DEFAULT_STRATEGY,
     LEVELS,
     emptyState,
@@ -500,6 +635,13 @@
     daysBetween,
     withDraws,
     isEtf,
+    SUB_CATEGORIES,
+    normalizeSubs,
+    nthBilling,
+    nextBilling,
+    monthlyCost,
+    subsSummary,
+    buildIcs,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.Core = api;

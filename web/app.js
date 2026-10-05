@@ -2,7 +2,7 @@
 (function () {
   "use strict";
   const C = window.Core;
-  const APP_VERSION = 4;
+  const APP_VERSION = 5;
 
   // 手機上的快取若混到舊版 core.js，清掉快取並重新載入一次（避免按鈕沒反應）
   if (!C || C.VERSION !== APP_VERSION) {
@@ -344,6 +344,120 @@
     });
   }
 
+  // ---------- 訂閱 ----------
+  const UNIT_LABEL = { month: "月", year: "年", week: "週" };
+  const cycleText = (x) => (x.every === 1 ? `每${UNIT_LABEL[x.unit]}` : `每 ${x.every} ${UNIT_LABEL[x.unit] === "月" ? "個月" : UNIT_LABEL[x.unit]}`);
+  const subAmount = (x) => (x.currency === "USD" ? `US$${x.amount.toLocaleString("en-US")}` : `NT$${fmt(x.amount)}`);
+  const usdRate = () => state.usd_twd || state.prices.USDTWD?.price || null;
+  const dueText = (d) => (d === 0 ? "今天" : d === 1 ? "明天" : `${d} 天後`);
+
+  function renderSubs() {
+    const sum = C.subsSummary(state.subscriptions, today(), usdRate());
+    const items = sum.rows
+      .map((r) => {
+        const x = r.sub;
+        const i = state.subscriptions.indexOf(x);
+        const monthly = r.monthly === null ? "—" : `約 ${fmt(r.monthly)}/月`;
+        return `<div class="sub-item ${x.active ? "" : "off"}" data-act="edit-sub" data-i="${i}">
+          <div class="row-name">${esc(x.name)}</div>
+          <div class="amt">${esc(subAmount(x))}</div>
+          <div class="s">${esc(x.category)}・${cycleText(x)}${x.payment ? `・${esc(x.payment)}` : ""}</div>
+          <div class="s" style="text-align:right">${x.active ? `<span class="due ${r.inDays <= 3 ? "soon" : ""}">${r.next.slice(5).replace("-", "/")}・${dueText(r.inDays)}</span>` : "已暫停"}</div>
+          ${x.unit !== "month" || x.every !== 1 || x.currency === "USD" ? `<div class="s">${monthly}</div><div></div>` : ""}
+        </div>`;
+      })
+      .join("");
+    const maxCat = Math.max(1, ...Object.values(sum.byCategory));
+    const cats = Object.entries(sum.byCategory)
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, v]) => `<div class="cat-row"><span>${esc(k)}</span><div class="cat-bar" style="width:${((v / maxCat) * 100).toFixed(1)}%"></div><span class="row-val">${fmt(v)}</span></div>`)
+      .join("");
+    const upcoming = sum.upcoming
+      .map((r) => `<div class="row-head" style="padding:6px 0;cursor:pointer" data-act="edit-sub" data-i="${state.subscriptions.indexOf(r.sub)}"><span>${esc(r.sub.name)}</span><span class="row-val">${r.next.slice(5).replace("-", "/")}・${esc(subAmount(r.sub))}</span></div>`)
+      .join("");
+    $("#view").innerHTML = `
+      <div class="grid2">
+        <div class="card"><div class="k">每月合計</div><div class="v">${fmt(sum.monthly)}</div><div class="s">${sum.activeCount} 項使用中</div></div>
+        <div class="card"><div class="k">一年合計</div><div class="v">${fmt(sum.yearly)}</div><div class="s">年繳、週繳都換算進來</div></div>
+      </div>
+      ${sum.missingRate ? '<p class="s">有美元訂閱，但還沒有匯率：到「更新股價」或「設定」填入 USD/TWD 後才會算進合計。</p>' : ""}
+      <div class="btn-row" style="margin-top:12px"><button class="btn primary" data-act="add-sub">＋ 新增訂閱</button>
+        ${sum.activeCount ? '<button class="btn" data-act="export-ics">加入 iPhone 行事曆</button>' : ""}</div>
+      ${upcoming ? `<h2>30 天內要扣款</h2><div class="card">${upcoming}</div>` : ""}
+      <h2>全部訂閱</h2>
+      ${items ? `<div class="card">${items}</div>` : '<div class="empty">還沒有訂閱，按「新增訂閱」開始記錄</div>'}
+      ${cats ? `<h2>各類別每月花費</h2><div class="card">${cats}</div>` : ""}
+      <p class="s">「加入 iPhone 行事曆」會在每次扣款的前一天提醒你。修改訂閱後請重新加入一次，並把舊的行事曆刪掉，以免重複。</p>`;
+  }
+
+  function editSub(i) {
+    const isNew = i === undefined;
+    const x = isNew
+      ? { id: `sub-${Date.now().toString(36)}`, name: "", amount: "", currency: "TWD", unit: "month", every: 1, start_date: today(), category: "遊戲", payment: "", note: "", active: true }
+      : state.subscriptions[i];
+    const cats = Object.fromEntries(C.SUB_CATEGORIES.map((c) => [c, c]));
+    openSheet(
+      isNew ? "新增訂閱" : x.name,
+      field("name", "名稱", x.name, { mode: "text", hint: "例如：BanG Dream! Our Notes 月卡" }) +
+        field("amount", "每次扣款金額", x.amount === "" ? "" : x.amount) +
+        field("currency", "幣別", x.currency, { options: { TWD: "台幣", USD: "美元（依匯率換算）" } }) +
+        field("every", "多久扣一次", x.every, { hint: "搭配下面的單位，例如 1 個月、3 個月、1 年" }) +
+        field("unit", "單位", x.unit, { options: { month: "月", year: "年", week: "週" } }) +
+        field("start_date", "某一次扣款日（第一次或最近一次都可以）", x.start_date, { type: "date", hint: "App 會用這天推算之後每一次的扣款日" }) +
+        field("category", "類別", x.category, { options: cats }) +
+        field("payment", "付款方式", x.payment, { mode: "text", hint: "例如：Apple ID、中信信用卡" }) +
+        field("note", "備註", x.note, { mode: "text" }) +
+        field("active", "狀態", x.active ? "on" : "off", { options: { on: "使用中", off: "已暫停／取消" } }),
+      (form) => {
+        const name = form.elements.name.value.trim();
+        if (!name) return "請輸入名稱";
+        const amount = numOf(form, "amount", true);
+        if (!(amount >= 0)) return "請輸入金額";
+        const every = Math.round(numOf(form, "every", true));
+        if (!(every >= 1)) return "「多久扣一次」要是 1 以上的整數";
+        const start = form.elements.start_date.value;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) return "請選擇扣款日";
+        const next = C.normalizeSubs([
+          {
+            id: x.id,
+            name,
+            amount,
+            currency: form.elements.currency.value,
+            unit: form.elements.unit.value,
+            every,
+            start_date: start,
+            category: form.elements.category.value,
+            payment: form.elements.payment.value.trim(),
+            note: form.elements.note.value.trim(),
+            active: form.elements.active.value === "on",
+          },
+        ])[0];
+        if (isNew) state.subscriptions.push(next);
+        else state.subscriptions[i] = next;
+      },
+      isNew ? null : () => state.subscriptions.splice(i, 1)
+    );
+  }
+
+  async function exportIcs() {
+    const text = C.buildIcs(state.subscriptions, today(), usdRate());
+    const name = "subscriptions.ics";
+    try {
+      const file = new File([text], name, { type: "text/calendar" });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: "訂閱扣款提醒" });
+        return;
+      }
+    } catch (e) {
+      if (e && e.name === "AbortError") return;
+    }
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([text], { type: "text/calendar" }));
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  }
+
   // ---------- 編輯面板 ----------
   function openSheet(title, bodyHtml, onSave, onDelete) {
     const sheet = $("#sheet");
@@ -676,6 +790,8 @@
     // 保留手機上已累積的價格歷史與每日紀錄
     for (const [k, v] of Object.entries(state.price_history)) if (!next.price_history[k]) next.price_history[k] = v;
     if (!next.history.length) next.history = state.history;
+    // 電腦版匯出的 JSON 沒有訂閱資料，保留手機上的
+    if (!next.subscriptions.length) next.subscriptions = state.subscriptions;
     state = next;
     save();
     toast("匯入完成");
@@ -746,11 +862,12 @@
   // ---------- 路由 ----------
   function render() {
     document.querySelectorAll("nav.tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === tab)));
-    const titles = { overview: "我的錢與借來的錢", holdings: "持股", loans: "質押借款", settings: "設定" };
+    const titles = { overview: "我的錢與借來的錢", holdings: "持股", loans: "質押借款", subs: "訂閱管理", settings: "設定" };
     $("#title").textContent = titles[tab];
     const dates = Object.values(state.prices).map((p) => p.date).filter(Boolean).sort();
     $("#asof").textContent = dates.length ? `價格日期 ${dates.at(-1)}` : "尚未更新價格";
-    ({ overview: renderOverview, holdings: renderHoldings, loans: renderLoans, settings: renderSettings })[tab]();
+    $("#refresh").hidden = tab === "subs";
+    ({ overview: renderOverview, holdings: renderHoldings, loans: renderLoans, subs: renderSubs, settings: renderSettings })[tab]();
   }
 
   document.querySelector("nav.tabs").addEventListener("click", (e) => {
@@ -770,6 +887,9 @@
       "add-loan": () => editLoan(),
       "edit-loan": () => editLoan(i),
       "edit-cash": editCash,
+      "add-sub": () => editSub(),
+      "edit-sub": () => editSub(i),
+      "export-ics": exportIcs,
       prices: editPrices,
       export: exportData,
       import: pickFile,
