@@ -50,6 +50,14 @@ class Purchase:
 
 
 @dataclass
+class Draw:
+    """一次撥款（同一個借款帳戶可分多次撥款，利息各自從撥款日起算）。"""
+
+    date: date
+    amount: float
+
+
+@dataclass
 class Loan:
     id: str
     principal: float
@@ -60,6 +68,11 @@ class Loan:
     realized_pnl: float = 0.0
     collateral: list[Collateral] = field(default_factory=list)
     purchases: list[Purchase] = field(default_factory=list)
+    draws: list[Draw] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if not self.draws and self.principal > 0:
+            self.draws = [Draw(date=self.start_date, amount=self.principal)]
 
 
 @dataclass
@@ -124,15 +137,28 @@ def _holding(raw: dict) -> Holding:
 
 
 def _loan(raw: dict) -> Loan:
-    for k in ("id", "principal", "annual_rate", "start_date"):
+    draws = [Draw(date=_parse_date(d["date"]), amount=float(d["amount"])) for d in raw.get("draws", [])]
+    required = ("id", "annual_rate") if draws else ("id", "principal", "annual_rate", "start_date")
+    for k in required:
         if k not in raw:
             raise ConfigError(f"loans 缺少 {k}: {raw}")
+    if any(d.amount <= 0 for d in draws):
+        raise ConfigError(f"loans {raw['id']}: draws 的 amount 必須大於 0")
+    if draws:
+        # 有撥款紀錄時，本金與起借日由撥款紀錄決定
+        principal = sum(d.amount for d in draws)
+        start = min(d.date for d in draws)
+    else:
+        principal = float(raw["principal"])
+        start = _parse_date(raw["start_date"])
+        draws = [Draw(date=start, amount=principal)]
     return Loan(
         id=str(raw["id"]),
         name=raw.get("name", ""),
-        principal=float(raw["principal"]),
+        principal=principal,
         annual_rate=float(raw["annual_rate"]),
-        start_date=_parse_date(raw["start_date"]),
+        start_date=start,
+        draws=draws,
         interest_paid=float(raw.get("interest_paid", 0)),
         realized_pnl=float(raw.get("realized_pnl", 0)),
         collateral=[

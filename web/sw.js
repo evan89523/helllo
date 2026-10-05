@@ -1,5 +1,5 @@
 // 離線快取：App 本身的檔案先用快取顯示，背景再更新；股價 API（跨網域）不經過快取。
-const CACHE = "asset-tracker-v2";
+const CACHE = "asset-tracker-v3";
 const SHELL = ["./", "index.html", "core.js", "app.js", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png"];
 
 self.addEventListener("install", (e) => {

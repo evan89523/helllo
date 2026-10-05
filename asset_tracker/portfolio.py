@@ -252,7 +252,10 @@ def evaluate(
     loans: list[LoanStatus] = []
     for loan in portfolio.loans:
         days = max(0, (as_of - loan.start_date).days)
-        accrued = loan.principal * loan.annual_rate * days / 365
+        # 單利，每次撥款各自從撥款日起算（尚未撥款的不計）
+        accrued = sum(
+            d.amount * loan.annual_rate * max(0, (as_of - d.date).days) / 365 for d in loan.draws
+        )
         coll_value = 0.0
         missing = []
         for c in loan.collateral:

@@ -186,8 +186,9 @@ def portfolio_to_json(portfolio: Portfolio, store: Store, history_days: int = 25
         ],
         "loans": [
             {
-                **{k: v for k, v in vars(l).items() if k not in ("collateral", "purchases", "start_date")},
+                **{k: v for k, v in vars(l).items() if k not in ("collateral", "purchases", "start_date", "draws")},
                 "start_date": l.start_date.isoformat(),
+                "draws": [{"date": d.date.isoformat(), "amount": d.amount} for d in l.draws],
                 "collateral": [vars(c) for c in l.collateral],
                 "purchases": [vars(p) for p in l.purchases],
             }
