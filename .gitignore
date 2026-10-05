@@ -1,0 +1,7 @@
+# 個人資產資料，不要提交到 git
+portfolio.toml
+holdings_*.toml
+data/
+reports/
+__pycache__/
+*.pyc
