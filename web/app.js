@@ -2,7 +2,7 @@
 (function () {
   "use strict";
   const C = window.Core;
-  const APP_VERSION = 5;
+  const APP_VERSION = 6;
 
   // 手機上的快取若混到舊版 core.js，清掉快取並重新載入一次（避免按鈕沒反應）
   if (!C || C.VERSION !== APP_VERSION) {
@@ -322,7 +322,12 @@
           <button class="btn" data-act="paste">貼上 JSON</button></div>
       </div>
       ${installCard()}
+      <div class="card">
+        <button class="btn block" data-act="force-update">強制更新 App（資料不會刪除）</button>
+        <p class="s" style="margin:8px 0 0">App 行為怪怪的、或更新後沒有變化時使用：會清除 App 的快取並重新載入最新版。</p>
+      </div>
       <div class="card"><button class="btn danger block" data-act="reset">清除這支手機上的所有資料</button></div>
+      <p class="s" style="text-align:center">App 版本 ${APP_VERSION}・計算核心版本 ${esc(C.VERSION)}</p>
       <input type="file" id="fileIn" accept="application/json,.json" hidden>`;
     $("#stratForm").addEventListener("submit", (e) => {
       e.preventDefault();
@@ -695,6 +700,7 @@
     const btn = $("#refresh");
     btn.disabled = true;
     btn.textContent = "更新中…";
+    toast("正在更新股價…");
     try {
       const msg = (await refreshFromFeed()) || (await refreshDirect());
       save();
@@ -859,6 +865,29 @@
     render();
   }
 
+  // 清掉 service worker 與快取後重新載入；localStorage 裡的資料不受影響
+  async function forceUpdate() {
+    toast("正在更新 App…");
+    try {
+      if (navigator.serviceWorker) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map((r) => r.unregister()));
+      }
+      if (window.caches) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((k) => caches.delete(k)));
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    location.replace(location.pathname + "?reload=" + Date.now());
+  }
+
+  // 任何沒被接住的錯誤都顯示出來，避免「按了沒反應」
+  const showError = (msg) => toast(`發生錯誤：${msg}。請到「設定」按「強制更新 App」`);
+  addEventListener("error", (e) => showError(e.message || "未知錯誤"));
+  addEventListener("unhandledrejection", (e) => showError((e.reason && e.reason.message) || String(e.reason)));
+
   // ---------- 路由 ----------
   function render() {
     document.querySelectorAll("nav.tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === tab)));
@@ -895,6 +924,7 @@
       import: pickFile,
       paste: pasteJson,
       demo: loadDemo,
+      "force-update": forceUpdate,
       reset: () => {
         if (confirm("確定清除這支手機上的所有資料？建議先匯出備份。")) {
           state = C.emptyState();
